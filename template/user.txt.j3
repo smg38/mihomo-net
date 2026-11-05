@@ -1,0 +1,1 @@
+vless://{{ UUID_USER }}@{{ IP }}:{{ PORT }}?encryption=none&flow={{ FLOW_USERS }}&type=tcp&security=reality&sni={{ SERVERNAME }}&fp={{ FINGERPRINT }}&pbk={{ PUBLIC_KEY }}&sid={{ SHORT_ID }}#{{ NAME }}

@@ -1,0 +1,13 @@
+# =============================================================================
+# Версия 3.2.0   2026.11.5   @smg38
+# template/D-env.j3 — .env для entrypoint.sh на сервере D
+# Рендерится в build/D/.env. Используется только scripts/entrypoint.sh.
+# Параметры туннеля и апстримов — в D-config (не здесь).
+# =============================================================================
+SKIP_CNIP=false
+SKIP_RUIP=true
+QUIC=true
+LOCAL_LOOPBACK_PROXY=false
+MIHOMO_KERNEL={{ DIR_D }}/mihomo
+RU_CIDR_URL=https://raw.githubusercontent.com/ipverse/rir-ip/master/country/ru/ipv4-aggregated.txt
+CN_CIDR_URL=https://cdn.jsdelivr.net/gh/gaoyifan/china-operator-ip@ip-lists/china.txt

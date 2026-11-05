@@ -1,0 +1,34 @@
+# =============================================================================
+# Версия 3.2.0   2026.11.5   @smg38
+# template/D-env.j3 — .env для entrypoint.sh на сервере D
+# Рендерится в build/D/.env. Используется scripts/entrypoint.sh (и загрузчиком списков).
+# Параметры туннеля и апстримов — в config.yaml (не здесь).
+# =============================================================================
+
+# --- Поведение сети ---
+# tproxy — настроить ip rule / nftables; none — только запустить ядро
+NETWORK_MODE=tproxy
+SKIP_CNIP=true
+SKIP_RUIP=true
+QUIC=true
+LOCAL_LOOPBACK_PROXY=false
+
+# --- Порты и метки (должны совпадать с config.yaml) ---
+# tproxy-port и dns.listen в config.yaml: 7893 и 1053
+TPROXY_PORT={{ PORT_D }}
+DNS_PORT={{ DNS_PORT }}
+FWMARK=1
+BYPASS_MARK=0xff
+ROUTE_TABLE=100
+NFT_TABLE=clash
+
+# --- Ядро и запуск ---
+# Путь должен совпадать с ExecStartPre в mihomo-tproxy.service
+MIHOMO_KERNEL={{ DIR_D }}/mihomo
+# { KERNEL | default('/usr/local/bin/mihomo') }}
+SKIP_CONFIG_TEST=false
+READY_TIMEOUT=30
+
+# --- Источники списков подсетей (файлы cn_cidr.txt / ru_cidr.txt в рабочем каталоге) ---
+RU_CIDR_URL=https://raw.githubusercontent.com/ipverse/rir-ip/master/country/ru/ipv4-aggregated.txt
+CN_CIDR_URL=https://cdn.jsdelivr.net/gh/gaoyifan/china-operator-ip@ip-lists/china.txt

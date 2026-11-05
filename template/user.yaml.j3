@@ -1,0 +1,39 @@
+# =============================================================================
+# template/user.yaml.j3 — обобщённый клиентский профиль (YAML)
+# Переменные: NAME, IP, PORT, UUID_USER, FLOW_USERS, PUBLIC_KEY, SHORT_ID
+# =============================================================================
+mixed-port: 7890
+allow-lan: false
+mode: rule
+log-level: warning
+ipv6: false
+
+proxies:
+  - name: "{{ NAME }}"
+    type: vless
+    server: {{ IP }}
+    port: {{ PORT }}
+    flow: {{ FLOW_USERS }}
+    uuid: "{{ UUID_USER }}"
+    network: tcp
+    reality-opts:
+      public-key: "{{ PUBLIC_KEY }}"
+      short-id: "{{ SHORT_ID }}"
+      support-x25519mlkem768: false  
+    servername: {{ SERVERNAME }}
+    client-fingerprint: {{ FINGERPRINT }}
+    tls: true
+    udp: false
+
+proxy-groups:
+  - name: "PROXY"
+    type: select
+    proxies: [{{ NAME }}, DIRECT]
+
+rules:
+  - GEOIP,private,DIRECT,no-resolve
+  - AND,((NETWORK,udp),(DST-PORT,443)),REJECT
+  - NETWORK,udp,DIRECT
+  - GEOIP,CN,DIRECT
+  - GEOIP,RU,DIRECT
+  - MATCH,PROXY

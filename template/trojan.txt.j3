@@ -1,0 +1,3 @@
+trojan://{{ PASSWORD }}@{{ IP }}:{{ PORT }}?security=tls&allowInsecure=1&type=tcp&headerType=none&sni={{ IP }}#Mihomo-Trojan-IP
+trojan://{{ PASSWORD }}@{{ IP }}:{{ PORT }}?security=tls&allowInsecure=1&type=tcp&headerType=none&sni={{ SNI }}#Mihomo-Trojan-SNI
+ss://{{ SS_B64 }}@{{ IP }}:{{ PORT }}#Mihomo-SS

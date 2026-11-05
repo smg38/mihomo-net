@@ -1,0 +1,62 @@
+# =============================================================================
+# template/nginx-mihomo.conf.j3 — nginx-конфиг для выдачи подписок на C
+# Переменные: {{ WEB_DIR_REMOTE }} — корень выдачи, {{ IP_C }} — внешний IP.
+#
+# Раскладка на сервере:
+#   {{ WEB_DIR_REMOTE }}/sub/   — постоянные токены (копии user*.txt)
+#   {{ WEB_DIR_REMOTE }}/once/  — одноразовые токены (копии user*.txt)
+#   {{ WEB_DIR_REMOTE }}/users/ — клиентские YAML-профили
+#
+# Приватные ключи лежат ВНЕ корня nginx (обычно /opt/mihomo/keys/) и
+# физически недоступны через HTTP — deny-правило не требуется.
+# =============================================================================
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ IP_C }};
+
+    root {{ WEB_DIR_REMOTE }};
+    index index.html;
+
+    # Явно запрещаем dotfiles
+    location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+
+    # Постоянные токены подписки
+    location /mihomo/sub/ {
+        alias {{ WEB_DIR_REMOTE }}/sub/;
+        default_type text/plain;
+        add_header Cache-Control "no-store" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        try_files $uri =404;
+    }
+
+    # Одноразовые токены подписки
+    location /mihomo/once/ {
+        alias {{ WEB_DIR_REMOTE }}/once/;
+        default_type text/plain;
+        add_header Cache-Control "no-store" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        try_files $uri =404;
+    }
+
+    # Клиентские YAML-профили
+    location /mihomo/users/ {
+        alias {{ WEB_DIR_REMOTE }}/users/;
+        default_type text/yaml;
+        add_header Cache-Control "no-store" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        try_files $uri =404;
+    }
+
+    # Всё остальное — 404, никакого листинга каталогов
+    location / {
+        return 404;
+    }
+
+    autoindex off;
+}

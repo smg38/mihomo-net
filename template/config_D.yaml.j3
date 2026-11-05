@@ -1,0 +1,134 @@
+# =============================================================================
+# template/config_D.yaml.j3 — сервер D: прозрачный шлюз для локальной сети (RU)
+# Версия: 3.2.0   2026-11-5
+# Автор: @smg38
+#
+# Пользователи D ничего не настраивают: трафик LAN идёт через D как через
+# шлюз по умолчанию (TPROXY + NFTables, см. entrypoint.sh).
+#
+# GEO_MODE=local  — D сам определяет зону: RU/CN/private → DIRECT,
+#                   остальное → C (primary), B (fallback).
+# GEO_MODE=remote — D весь трафик (кроме private и SERVERNAME) → C/B.
+#
+# GeoSite.dat — RoscomVPN (содержит category-ru). Подкладывается установщиком.
+# =============================================================================
+mixed-port: 7890
+allow-lan: true
+bind-address: "*"
+mode: rule
+log-level: info
+external-controller: 127.0.0.1:9900
+secret: "{{ SECRET_KEY_D }}"
+ipv6: false
+tproxy-port: {{ PORT_D }}
+routing-mark: 255
+geo-auto-update: false
+
+sniffer:
+  enable: true
+  force-dns-mapping: true
+  parse-pure-ip: true
+  override-destination: false
+  sniff:
+    TLS:
+      ports: [443, 8443]
+    HTTP:
+      ports: [80, 8080-8880]
+    QUIC:
+      ports: [443, 8443]
+
+proxies:
+  - name: "to-serverC"
+    type: vless
+    server: {{ IP_C }}
+    port: {{ PORT_C }}
+    flow: {{ FLOW_AB }}
+    uuid: "{{ UUID_DC }}"
+    network: tcp
+    reality-opts:
+      public-key: "{{ PUBLIC_KEY_C }}"
+      short-id: "{{ SHORT_ID_C }}"
+      support-x25519mlkem768: false
+    servername: {{ SERVERNAME }}
+    client-fingerprint: {{ FINGERPRINT }}
+    tls: true
+    udp: true
+{% if LISTEN_B == "vless" %}
+  - name: "to-serverB"
+    type: vless
+    server: {{ IP_B }}
+    port: {{ PORT_B }}
+    flow: {{ FLOW_AB }}
+    uuid: "{{ UUID_DB }}"
+    network: tcp
+    reality-opts:
+      public-key: "{{ PUBLIC_KEY_B }}"
+      short-id: "{{ SHORT_ID_B }}"
+      support-x25519mlkem768: false
+    servername: {{ SERVERNAME }}
+    client-fingerprint: {{ FINGERPRINT }}
+    tls: true
+    udp: true
+{% endif %}
+{% if LISTEN_B == "hysteria2" %}
+  - name: "hy2-to-B"
+    type: hysteria2
+    server: {{ IP_B }}          # Публичный IP сервера B
+    port: {{ PORT_B }}        # UDP-порт, прослушиваемый сервером
+    password: "{{ HY2_PASSWORD }}"
+    # up: "50 Mbps"             # Рекомендуется заполнить фактическую скорость вашей сети
+    # down: "100 Mbps"
+    
+    # Если используется самоподписанный сертификат, раскомментируйте следующую строку
+    skip-cert-verify: true
+    # sni: your.domain.com     # Если есть доменное имя, укажите его
+
+    # ===== Синхронизация с серверной обфускацией =====
+    obfs: salamander
+    obfs-password: "{{ HY2_OBFS_PASSWORD }}"
+    
+    # Другие общие параметры
+    udp: true
+    # alpn: [h3]                # Обычно не требуется указывать явно
+{% endif %}
+
+proxy-groups:
+  - name: PROXY
+    type: fallback
+#    type: select
+    proxies:
+      - to-serverC
+      - to-serverB
+#    default-selected: to-serverC
+    url: "https://www.gstatic.com/generate_204"
+    interval: 30
+    timeout: 5000
+    lazy: false
+
+dns:
+  enable: true
+  listen: 0.0.0.0:{{ DNS_PORT }}
+  cache-algorithm: arc
+  ipv6: false
+  enhanced-mode: redir-host
+  nameserver:
+    - 77.88.8.8
+    - 8.8.8.8
+  fallback:
+    - tls://1.1.1.1:853
+
+rules:
+  - DOMAIN,{{ SERVERNAME }},DIRECT,no-resolve
+  - DST-PORT,53,DIRECT   # PROXY или REJECT, или DIRECT — в зависимости от того, что нужно
+{% if GEO_MODE == "local" %}
+  - DOMAIN-SUFFIX,ru,DIRECT
+  - DOMAIN-SUFFIX,su,DIRECT
+  - DOMAIN-SUFFIX,xn--p1ai,DIRECT
+  - GEOSITE,category-ru,DIRECT
+  - GEOIP,RU,DIRECT,no-resolve
+{% endif %}
+  # - GEOSITE,cn,DIRECT
+  # - GEOIP,CN,DIRECT,no-resolve
+  # - GEOIP,RU,DIRECT,no-resolve
+  - GEOIP,private,DIRECT,no-resolve
+  - MATCH,PROXY

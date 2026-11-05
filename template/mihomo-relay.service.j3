@@ -1,0 +1,31 @@
+# =============================================================================
+# template/mihomo-relay.service.j3 — systemd unit для серверов B и C
+# Роль: простой запуск Mihomo как relay, без nftables/TProxy (это только A).
+# Переменные: {{ DIR }} — рабочий каталог, {{ USER }} — владелец (обычно root).
+# =============================================================================
+[Unit]
+Description=Mihomo proxy service (relay)
+Documentation=https://github.com/MetaCubeX/mihomo
+After=network.target NetworkManager.service systemd-networkd.service
+
+[Service]
+Type=simple
+User={{ USER }}
+Group={{ USER }}
+LimitNPROC=500
+LimitNOFILE=1000000
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
+Restart=always
+RestartSec=2
+WorkingDirectory={{ DIR }}
+ExecStartPre=/usr/bin/test -x /usr/local/bin/mihomo
+ExecStartPre=/usr/bin/test -f {{ DIR }}/config.yaml
+ExecStart=/usr/local/bin/mihomo -d {{ DIR }}
+ExecReload=/bin/kill -HUP $MAINPID
+TimeoutStopSec=10
+KillMode=process
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target

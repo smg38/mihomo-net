@@ -1,0 +1,43 @@
+# =============================================================================
+# Версия 3.2.0   2026.11.5   @smg38
+# template/mihomo-tproxy.service.j3 — systemd unit для сервера D (tproxy-шлюз)
+# Отличается от relay тем, что запускает entrypoint.sh: он стартует ядро,
+# ждёт его порт, затем настраивает nftables и policy routing, а при остановке
+# убирает их (trap EXIT + ExecStopPost как страховка).
+# Переменные:
+#   {{ DIR }}    — рабочий каталог (там config.yaml, .env, scripts/, lib/)
+#   {{ USER }}   — владелец (root; entrypoint.sh требует uid 0)
+# =============================================================================
+[Unit]
+Description=Mihomo transparent proxy gateway (D)
+Documentation=https://github.com/MetaCubeX/mihomo
+After=network-online.target NetworkManager.service systemd-networkd.service nftables.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ USER }}
+Group={{ USER }}
+LimitNPROC=5000
+LimitNOFILE=1000000
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SYS_TIME CAP_SYS_PTRACE CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE CAP_SYS_TIME CAP_SYS_PTRACE CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE
+Restart=always
+RestartSec=2
+WorkingDirectory={{ DIR }}
+ExecStartPre=/usr/bin/test -x {{ DIR }}/mihomo 
+ExecStartPre=/usr/bin/test -f {{ DIR }}/config.yaml
+ExecStartPre=/usr/bin/test -f {{ DIR }}/.env
+ExecStartPre=/usr/bin/test -f {{ DIR }}/scripts/entrypoint.sh
+ExecStart=/bin/bash {{ DIR }}/scripts/entrypoint.sh run
+ExecStopPost=/bin/bash {{ DIR }}/scripts/entrypoint.sh clean
+# HUP получает скрипт (главный PID) и пробрасывает его ядру
+ExecReload=/bin/kill -HUP $MAINPID
+TimeoutStopSec=10
+# mixed: SIGTERM главному процессу (скрипт переправит ядру), по таймауту SIGKILL всей группе.
+# KillMode=process оставил бы ядро-сироту.
+KillMode=mixed
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target

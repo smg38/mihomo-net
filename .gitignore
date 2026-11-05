@@ -69,14 +69,42 @@ ui/
 # Резервные файлы
 *.backup
 *.bak
+*.bak.*
 
 # сжатый файл
 *.tar.gz
 *.zip
+*.apk
 
 # Настройка транзакций обновления, частных точек восстановления и артефактов локальной проверки.
 .update-state/
 .tmp/
-mihomo-ru-project.txt
+archive/*
+
+# Файлы проекта Mihomo
+mihomo-net-project.txt
 projmap_config.yaml
 projmap_index.csv
+
+
+#remote/*.yaml
+#remote/back/*
+#remote/web/user*.txt
+#remote/user*.txt
+build/
+build/keys/
+build/keys/params.env
+build/keys/keys.env*
+build/A/
+build/B/
+build/C/
+build/users/
+build/web/
+
+mise.toml
+README_old.md
+cmd/null
+docs/tag.txt
+update.sh.legacy.*
+template/back/*
+migrate-templates.sh

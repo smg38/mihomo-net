@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Установка Mihomo</title>
+    <style>
+        :root { color-scheme: dark; }
+        body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+               background: #121c22; color: #a6bed2; margin: 0; padding: 24px; }
+        .card { max-width: 720px; margin: 0 auto; background: #1c2932;
+                padding: 32px; border-radius: 16px; }
+        h1 { color: #dde7ef; margin-top: 0; }
+        h2 { color: #dde7ef; margin-top: 24px; }
+        p { line-height: 1.55; }
+        .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+        .tab { padding: 10px 16px; background: #2a3944; color: #dde7ef;
+               border: 1px solid #2a3944; border-radius: 8px; cursor: pointer;
+               text-decoration: none; font-size: 0.95rem; }
+        .tab.active { background: rgba(255,134,91,.12); color: #ff865b;
+                      border-color: #ff865b; }
+        .btn { display: inline-block; padding: 12px 20px; margin: 6px 6px 6px 0;
+               border: none; border-radius: 8px; font-size: 1rem;
+               cursor: pointer; text-decoration: none; text-align: center; }
+        .btn-primary { background: #ff865b; color: #281309; font-weight: 600; }
+        .btn-secondary { background: #2a3944; color: #dde7ef; }
+        .btn-danger { background: #4a2a2a; color: #f1b4b1; }
+        .hidden { display: none; }
+        code { background: #0d161c; padding: 3px 8px; border-radius: 4px;
+               font-size: 0.85em; word-break: break-all; }
+        pre { background: #0d161c; padding: 12px; border-radius: 8px;
+              overflow-x: auto; font-size: 0.85em; }
+        .note { background: rgba(166,190,210,.06); border-left: 3px solid #ff865b;
+                padding: 12px 16px; margin: 12px 0; border-radius: 4px; }
+        .section { margin-top: 20px; }
+        a.plain { color: #ff865b; }
+    </style>
+</head>
+<body>
+<div class="card">
+    <h1>Установка Mihomo</h1>
+    <p>Определите вашу операционную систему и выберите способ установки.
+       Скрипты разворачивают Mihomo. За подпиской обращайтесь.</p>
+
+    <div class="tabs" id="tabs">
+        <a class="tab" data-os="windows" href="#windows">Windows</a>
+        <a class="tab" data-os="linux"   href="#linux">Linux</a>
+        <a class="tab" data-os="android" href="#android">Android</a>
+        <a class="tab" data-os="ios"     href="#ios">iOS / iPhone</a>
+    </div>
+
+    <!-- ============================ WINDOWS ============================ -->
+    <div id="windows" class="section hidden">
+        <h2>Windows</h2>
+
+        <h3>Способ A — скрипт установки</h3>
+        <p>Требуется PowerShell 7.4+ и права администратора.</p>
+        <a class="btn btn-primary" href="windows/install.ps1" download>Скачать install.ps1</a>
+        <a class="btn btn-danger"  href="windows/uninstall.ps1" download>Скачать uninstall.ps1</a>
+        <p>После скачивания откройте PowerShell <strong>от имени администратора</strong> и выполните:</p>
+        <pre>Set-ExecutionPolicy -Scope Process Bypass
+.\install.ps1 -ConfigUrl "URL_ПОДПИСКИ"</pre>
+        <p>Удаление:</p>
+        <pre>.\uninstall.ps1</pre>
+
+        <h3>Способ B — Kwik (GUI, проще)</h3>
+        <div class="note">Одна кнопка, встроенный TUN, kill switch, автозапуск.
+            Рекомендуется, если не нужен CLI.</div>
+        <a class="btn btn-secondary" target="_blank" rel="noopener"
+           href="https://github.com/KwikCard/kwik/releases/latest">
+           Скачать Kwik с GitHub
+        </a>
+        <p>После запуска вставьте URL подписки в интерфейсе Kwik.</p>
+
+        <h3>Способ C — FlClash (GUI, альтернатива)</h3>
+        <a class="btn btn-secondary" target="_blank" rel="noopener"
+           href="https://github.com/chen08209/FlClash/releases/latest">
+           Скачать FlClash с GitHub
+        </a>
+        <p>Профили → Импорт → вставить URL подписки → Активировать.</p>
+    </div>
+
+    <!-- ============================= LINUX ============================= -->
+    <div id="linux" class="section hidden">
+        <h2>Linux</h2>
+
+        <h3>Способ A — скрипт установки</h3>
+        <a class="btn btn-primary" href="linux/install.sh" download>Скачать install.sh</a>
+        <a class="btn btn-danger"  href="linux/uninstall.sh" download>Скачать uninstall.sh</a>
+        <p>Или одной командой (замените <code>URL_ПОДПИСКИ</code> и <code>HOST</code>):</p>
+        <pre>curl -fsSL http://HOST/linux/install.sh | bash -s -- --config-url "URL_ПОДПИСКИ"</pre>
+        <p>Удаление:</p>
+        <pre>curl -fsSL http://HOST/linux/uninstall.sh | bash</pre>
+
+        <h3>Способ B — готовый GUI-клиент</h3>
+        <p><strong>Clash Verge Rev</strong> — AppImage / deb / rpm:
+            <a class="plain" target="_blank" rel="noopener"
+               href="https://github.com/clash-verge-rev/clash-verge-rev/releases/latest">
+               скачать с GitHub</a>.</p>
+        <p><strong>Mihomo Party</strong>:
+            <a class="plain" target="_blank" rel="noopener"
+               href="https://github.com/mihomo-party-org/mihomo-party/releases/latest">
+               скачать с GitHub</a>.</p>
+        <p>В обоих: Профили → Импорт по URL → вставить адрес подписки.</p>
+    </div>
+
+    <!-- ============================ ANDROID ============================ -->
+    <div id="android" class="section hidden">
+        <h2>Android</h2>
+
+        <div class="note">
+            Magisk / KernelSU / APatch <strong>не используем</strong>.
+            Только обычные приложения из F-Droid или GitHub.
+        </div>
+
+        <h3>Способ A — FlClash (рекомендуется)</h3>
+        <a class="btn btn-primary" target="_blank" rel="noopener"
+           href="https://github.com/chen08209/FlClash/releases/latest">
+           Скачать FlClash с GitHub
+        </a>
+        <p>Профили → Добавить → вставить URL: <code>URL_ПОДПИСКИ</code>
+           → Импорт → активировать профиль → разрешить VPN.</p>
+
+        <h3>Способ B — Clash Meta for Android (CMFA)</h3>
+        <a class="btn btn-secondary" target="_blank" rel="noopener"
+           href="https://github.com/MetaCubeX/ClashMetaForAndroid/releases/latest">
+           Скачать CMFA с GitHub
+        </a>
+        <p>Или из F-Droid:
+            <a class="plain" target="_blank" rel="noopener"
+               href="https://f-droid.org/packages/com.github.metacubex.clash.meta/">
+               com.github.metacubex.clash.meta</a>.</p>
+        <p>Профили → Новый профиль → URL → вставить адрес → сохранить →
+           нажать на профиль для активации.</p>
+    </div>
+
+    <!-- ============================== iOS ============================== -->
+    <div id="ios" class="section hidden">
+        <h2>iOS / iPhone / iPad</h2>
+        <p>Apple не разрешает устанавливать сторонние VPN-профили напрямую
+           без App Store. Нужно одно из приложений ниже. Все они платные,
+           но есть бесплатные альтернативы.</p>
+
+        <h3>Stash (рекомендуется)</h3>
+        <a class="btn btn-primary" target="_blank" rel="noopener"
+           href="https://apps.apple.com/app/stash/id1596063349">
+           Открыть в App Store
+        </a>
+        <p>Платно. Профили → <code>+</code> → Подписка → вставить
+           <code>URL_ПОДПИСКИ</code> → Импорт → Выбрать профиль →
+           Подключить.</p>
+
+        <h3>Shadowrocket</h3>
+        <a class="btn btn-secondary" target="_blank" rel="noopener"
+           href="https://apps.apple.com/app/shadowrocket/id932747118">
+           Открыть в App Store
+        </a>
+        <p>Платно. Профили → <code>+</code> → Subscribe → вставить URL →
+           Готово → выбрать профиль → подключить.</p>
+
+        <h3>Бесплатные альтернативы</h3>
+        <p><strong>Streisand</strong>:
+            <a class="plain" target="_blank" rel="noopener"
+               href="https://apps.apple.com/app/streisand/id6450534064">
+               App Store</a>.
+           <strong>V2Box</strong>:
+            <a class="plain" target="_blank" rel="noopener"
+               href="https://apps.apple.com/app/v2box-v2ray-client/id6446814690">
+               App Store</a>.</p>
+
+        <div class="note">
+            Если приложение не открывается — обновите iOS до последней версии.
+            Для iPhone без App Store (jailbreak) поддержка не гарантируется.
+        </div>
+    </div>
+</div>
+
+<script>
+    const TABS = document.querySelectorAll('.tab');
+    const SECTIONS = document.querySelectorAll('.section');
+
+    function show(os) {
+        SECTIONS.forEach(s => s.classList.toggle('hidden', s.id !== os));
+        TABS.forEach(t => t.classList.toggle('active', t.dataset.os === os));
+        history.replaceState(null, '', '#' + os);
+    }
+
+    TABS.forEach(t => t.addEventListener('click', e => {
+        e.preventDefault();
+        show(t.dataset.os);
+    }));
+
+    // Автоопределение ОС
+    const ua = navigator.userAgent.toLowerCase();
+    let detected = null;
+    if (ua.includes('iphone') || ua.includes('ipad') || ua.includes('ipod')) detected = 'ios';
+    else if (ua.includes('android')) detected = 'android';
+    else if (ua.includes('windows')) detected = 'windows';
+    else if (ua.includes('linux')) detected = 'linux';
+
+    // Явный хэш имеет приоритет
+    const hash = location.hash.replace('#', '');
+    if (['windows','linux','android','ios'].includes(hash)) show(hash);
+    else if (detected) show(detected);
+    else show('windows');
+</script>
+</body>
+</html>

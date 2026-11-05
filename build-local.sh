@@ -1,6 +1,6 @@
 #!/bin/bash
 # build-local.sh — полностью автоматическая локальная сборка + запуск Mihomo
-# Версия 3.0.0  2026-10-07
+# Версия 3.0.5  2026-10-10
 # Автор: @smg38
 #
 # Команды:
@@ -206,7 +206,7 @@ do_build() {
     esac
     export GOTOOLCHAIN=local
 
-    have go || fail "Go не найден. Установите Go 1.26+ (https://go.dev/dl/)"
+    have go || fail "Go не найден. Установите Go 1.27+ (https://go.dev/dl/)"
     kv "go version"     "$(go version)"
     kv "go.mod требует" "$(awk '/^go /{print $2; exit}' go.mod)"
 

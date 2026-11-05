@@ -1,0 +1,45 @@
+# =============================================================================
+# template/D-config.j3 — параметры сервера D (локальный шлюз, за NAT)
+# Версия: 3.2.0   2026-11-5
+# Автор: @smg38
+# =============================================================================
+# Рендерится в build/D/D-config на сборочной машине A.
+# Используется на D скриптами D-setup.sh / D-tunnel.sh / entrypoint.
+# =============================================================================
+
+# --- Сеть и runtime ---
+IP_D={{ IP_D }}
+PORT_D={{ PORT_D }}
+DIR_D={{ DIR_D }}
+ARCH_D={{ ARCH_D }}
+
+# --- Mihomo ---
+SECRET_KEY_D={{ SECRET_KEY_D }}
+FLOW_D={{ FLOW_AB }}
+FINGERPRINT_D={{ FINGERPRINT }}
+SERVERNAME_D={{ SERVERNAME }}
+
+# --- Апстримы (D -> C primary, D -> B fallback) ---
+IP_C={{ IP_C }}
+PORT_C={{ PORT_C }}
+IP_B={{ IP_B }}
+PORT_B={{ PORT_B }}
+UUID_DC={{ UUID_DC }}
+UUID_DB={{ UUID_DB }}
+PUBLIC_KEY_C={{ PUBLIC_KEY_C }}
+SHORT_ID_C={{ SHORT_ID_C }}
+PUBLIC_KEY_B={{ PUBLIC_KEY_B }}
+SHORT_ID_B={{ SHORT_ID_B }}
+
+# --- Reverse SSH tunnel D -> C (управление D через C) ---
+TUNNEL_C_HOST={{ IP_C }}
+TUNNEL_C_USER=root
+TUNNEL_C_PORT=22
+TUNNEL_REMOTE_PORT={{ TUNNEL_REMOTE_PORT }}      # 2222, слушает 127.0.0.1 на C
+TUNNEL_KEY=/root/.ssh/id_ed25519_tunnel
+
+# --- Как A подключается к D (для build-servers.sh --deploy D) ---
+JUMP_D_HOST={{ IP_C }}
+JUMP_D_USER=root
+JUMP_D_SSH_PORT=22
+REMOTE_PORT_D={{ TUNNEL_REMOTE_PORT }}           # 2222     

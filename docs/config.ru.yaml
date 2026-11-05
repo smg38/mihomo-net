@@ -1,0 +1,521 @@
+# Краткое руководство по конфигурированию
+# версия 3.2.0   2026.10.20
+# ===================================
+# port: 7890 # Порт HTTP(S)-прокси-сервера
+# socks-port: 7891 # Порт SOCKS5-прокси
+mixed-port: 10801 # Смешанный порт HTTP(S) и SOCKS-прокси
+# redir-port: 7892 # Порт прозрачного прокси для Linux и macOS
+
+# Порт прозрачного прокси-сервера для Linux (TProxy TCP и TProxy UDP)
+# tproxy-port: 7893
+
+allow-lan: true # Разрешить подключения из локальной сети
+bind-address: "*" # Адрес привязки, действует только при allow-lan: true; '*' означает все адреса
+authentication: # Имя пользователя и пароль для аутентификации на входах http/socks
+  - "username:password"
+skip-auth-prefixes: # Диапазоны IP, для которых пропускается аутентификация
+  - 127.0.0.1/8
+  - ::1/128
+lan-allowed-ips: # Диапазоны IP, которым разрешено подключение; действует только при allow-lan: true; значения по умолчанию — 0.0.0.0/0 и ::/0
+  - 0.0.0.0/0
+  - ::/0
+lan-disallowed-ips: # Диапазоны IP, которым запрещено подключение; чёрный список имеет приоритет над белым; по умолчанию пусто
+  - 192.168.0.3/32
+
+#  find-process-mode имеет 3 значения: always, strict, off
+#  - always — включено, принудительно сопоставлять все процессы
+#  - strict — по умолчанию, mihomo сам решает, включать ли сопоставление
+#  - off — не сопоставлять процессы; рекомендуется на роутерах
+find-process-mode: strict
+
+mode: rule
+
+# Пользовательский URL geodata
+geox-url:
+  geoip: "https://fastly.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat"
+  geosite: "https://fastly.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"
+  mmdb: "https://fastly.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.metadb"
+
+geo-auto-update: false # Автоматически ли обновлять geodata
+geo-update-interval: 24 # Интервал обновления, в часах
+
+# Реализация сопоставления, используемая GeoSite; доступные реализации:
+# - succinct (по умолчанию, то же, что rule-set)
+# - mph (из V2Ray, также `hybrid` в Xray)
+# geosite-matcher: succinct
+
+log-level: debug # Уровень логирования: silent/error/warning/info/debug
+
+ipv6: true # Общий переключатель IPv6; при выключении блокируются все IPv6-соединения и запросы DNS AAAA
+
+tls:
+  certificate: string # Сертификат в формате PEM либо путь к сертификату
+  private-key: string # Приватный ключ, соответствующий сертификату, в формате PEM либо путь к ключу
+  # Следующие два пункта — настройки mTLS; если client-auth-type задан как "verify-if-given" или "require-and-verify", то client-auth-cert обязателен
+  # client-auth-type: "" # Допустимые значения: "", "request", "require-any", "verify-if-given", "require-and-verify"
+  # client-auth-cert: string # Сертификат в формате PEM либо путь к сертификату
+  # Если заполнено, включается ECH (можно сгенерировать командой mihomo generate ech-keypair <明文域名>)
+  # ech-key: |
+  #   -----BEGIN ECH KEYS-----
+  #   ACATwY30o/RKgD6hgeQxwrSiApLaCgU+HKh7B6SUrAHaDwBD/g0APwAAIAAgHjzK
+  #   madSJjYQIf9o1N5GXjkW4DEEeb17qMxHdwMdNnwADAABAAEAAQACAAEAAwAIdGVz
+  #   dC5jb20AAA==
+  #   -----END ECH KEYS-----
+  custom-certifactes:
+    - |
+      -----BEGIN CERTIFICATE-----
+      format/pem...
+      -----END CERTIFICATE-----
+
+external-controller: 0.0.0.0:9093 # Адрес прослушивания RESTful API
+external-controller-tls: 0.0.0.0:9443 # Адрес прослушивания RESTful API HTTPS; требуется настройка раздела tls
+# secret: "123456" # `Authorization:Bearer ${secret}`
+
+# Настройка заголовков CORS для RESTful API
+external-controller-cors:
+  allow-origins:
+    - "*"
+  allow-private-network: true
+
+# Адрес прослушивания RESTful API через Unix socket (в Windows доступно при версии выше 17063, т.е. начиная с 1803/RS4)
+# !!! Внимание: при доступе к API через Unix socket secret не проверяется; если включаете — самостоятельно обеспечьте безопасность !!!
+# Способ проверки: curl -v --unix-socket "mihomo.sock" http://localhost/
+external-controller-unix: mihomo.sock
+
+# Адрес прослушивания RESTful API через Windows named pipe
+# !!! Внимание: при доступе к API через Windows named pipe secret не проверяется; если включаете — самостоятельно обеспечьте безопасность !!!
+external-controller-pipe: \\.\pipe\mihomo
+
+# Установка routing-mark для слушающих сокетов external-controller и external-controller-tls (только Linux)
+external-controller-routing-mark: 0
+
+# tcp-concurrent: true # Параллельное TCP-подключение ко всем IP, будет использовано TCP-соединение с самым быстрым рукопожатием
+
+# Каталог WEB UI; доступ по http://{{external-controller}}/ui
+external-ui: /path/to/ui/folder/
+external-ui-name: xd
+# В настоящее время поддерживается загрузка архивов zip и tgz
+external-ui-url: "https://github.com/MetaCubeX/metacubexd/archive/refs/heads/gh-pages.zip"
+
+# Включить DOH-сервер на порту RESTful API
+# !!! Этот URL не проверяет secret; если включаете — самостоятельно обеспечьте безопасность !!!
+external-doh-server: /dns-query
+
+# interface-name: en0 # Задать исходящий сетевой интерфейс
+
+#  Интервал TCP keep alive
+# disable-keep-alive: false # В настоящее время на Android принудительно true
+# keep-alive-idle: 15
+# keep-alive-interval: 15
+
+# routing-mark:6666 # Настройка fwmark, только для Linux
+experimental:
+  # Отключить поддержку GSO в quic-go. Это может снизить производительность на Linux.
+  # Не рекомендуется большинству пользователей.
+  # Включать следует только тем, кто столкнулся с проблемами во внутренней реализации quic-go,
+  # и отключать сразу после устранения проблемы.
+  # Это поле будет удалено, когда quic-go исправит все проблемы с GSO.
+  # Эквивалентно переменной окружения QUIC_GO_DISABLE_GSO=1.
+  #quic-go-disable-gso: true
+
+# Аналогично /etc/hosts; поддерживается указание только одного IP
+hosts:
+# '*.mihomo.dev': 127.0.0.1
+# '.dev': 127.0.0.1
+# 'alpha.mihomo.dev': '::1'
+# test.com: [1.1.1.1, 2.2.2.2]
+# home.lan: lan # lan — особое поле, добавляет адреса всех локальных сетевых интерфейсов
+# baidu.com: google.com # допускается только один псевдоним
+
+profile: # Хранение записей выбора select
+  store-selected: false
+
+  # Сохранять fake-ip
+  store-fake-ip: true
+
+# Настройка Tun
+tun:
+  enable: false
+  stack: mips # gvisor/mixed/system
+  dns-hijack:
+    - 0.0.0.0:53 # DNS, который нужно перехватывать
+  # auto-detect-interface: true # Автоматически определять исходящий сетевой интерфейс
+  # auto-route: true # Настраивать таблицу маршрутизации
+  # mtu: 9000 # Максимальная единица передачи
+  # gso: false # Включить generic segmentation offload, только Linux
+  # gso-max-size: 65536 # Максимальный размер пакета generic segmentation offload
+  auto-redirect: false # Автоматически настраивать iptables для перенаправления TCP-соединений. Только Linux. auto-route с auto-redirect теперь работает на роутерах как ожидается, без вмешательства.
+  # strict-route: true # Маршрутизировать все соединения в tun для предотвращения утечек, но ваше устройство не сможет быть доступным другим устройствам
+  # disable-icmp-forwarding: true # Отключить пересылку ICMP, чтобы предотвратить некоторые проблемы с ICMP-петлями; ping не будет показывать реальную задержку
+  # congestion-controller: cubic # TCP congestion controller: cubic, reno, bbr или bbr3; действует только на mips
+  route-address-set: # Добавить правила CIDR целевых IP из указанных rule-set в防火墙; несовпадающий трафик обойдёт маршрутизацию; только Linux и требуется nftables, а также включённые `auto-route` и `auto-redirect`.
+    - ruleset-1
+    - ruleset-2
+  route-exclude-address-set: # Добавить правила CIDR целевых IP из указанных rule-set в防火墙; совпадающий трафик обойдёт маршрутизацию; только Linux и требуется nftables, а также включённые `auto-route` и `auto-redirect`.
+    - ruleset-3
+    - ruleset-4
+  route-address: # При включённом auto-route использовать пользовательские маршруты вместо маршрута по умолчанию
+    - 0.0.0.0/1
+    - 128.0.0.0/1
+    - "::/1"
+    - "8000::/1"
+  # inet4-route-address: # При включённом auto-route использовать пользовательские маршруты вместо маршрута по умолчанию (старый синтаксис)
+  #   - 0.0.0.0/1
+  #   - 128.0.0.0/1
+  # inet6-route-address: # При включённом auto-route использовать пользовательские маршруты вместо маршрута по умолчанию (старый синтаксис)
+  #   - "::/1"
+  #   - "8000::/1"
+  # endpoint-independent-nat: false # Включить NAT, независимый от endpoint
+  # include-interface: # Ограничить интерфейсы, которые маршрутизируются. По умолчанию не ограничено; конфликтует с `exclude-interface`
+  #   - "lan0"
+  # exclude-interface: # Исключить интерфейсы из маршрутизации; конфликтует с `include-interface`
+  #   - "lan1"
+  # include-uid: # Правила UID поддерживаются только в Linux и требуют auto-route
+  # - 0
+  # include-uid-range: # Ограничить диапазон пользователей, которые маршрутизируются
+  # - 1000:9999
+  # exclude-uid: # Исключить пользователей из маршрутизации
+  #- 1000
+  # exclude-uid-range: # Исключить диапазон пользователей из маршрутизации
+  # - 1000:9999
+  # include-mac-address:
+  # - 00:11:22:33:44:55
+  # exclude-mac-address:
+  # - 00:11:22:33:44:55
+
+  # Правила пользователей и приложений Android поддерживаются только на Android
+  # и требуют auto-route
+
+  # include-android-user: # Ограничить пользователей Android, которые маршрутизируются
+  # - 0
+  # - 10
+  # include-package: # Ограничить пакеты приложений Android, которые маршрутизируются
+  # - com.android.chrome
+  # exclude-package: # Исключить пакеты приложений Android из маршрутизации
+  # - com.android.captiveportallogin
+
+# Настройка sniffing (определения домена); необязательно
+sniffer:
+  enable: false
+  ## Принудительный sniffing трафика, распознанного как redir-host
+  ## Например: Tun, Redir и TProxy с DNS redir-host относятся к этому
+  # force-dns-mapping: false
+  ## Принудительный sniffing всего трафика, для которого не получено доменное имя
+  # parse-pure-ip: false
+  # Использовать ли результат sniffing как фактический адрес доступа; по умолчанию true
+  # Глобальная настройка, приоритет ниже, чем у фактической конфигурации sniffer.sniff
+  override-destination: false
+  sniff: # Для TLS и QUIC по умолчанию, если не указаны ports, sniffing выполняется на 443
+    QUIC:
+    #  ports: [ 443 ]
+    TLS:
+    #  ports: [443, 8443]
+
+    # По умолчанию sniffing на 80
+    HTTP: # Порты, которые нужно сниффить
+      ports: [80, 8080-8880]
+      # Может переопределять sniffer.override-destination
+      override-destination: true
+  force-domain:
+    - +.v2ex.com
+  # skip-src-address: # Пропускать sniffing для исходных IP
+  #   - 192.168.0.3/32
+  # skip-dst-address: # Пропускать sniffing для целевых IP
+  #   - 192.168.0.3/32
+  ## Пропускать по результату sniffing
+  # skip-domain:
+  #   - Mijia Cloud
+  # Протоколы, которые нужно сниффить
+  # Устарело; если настроен sniffer.sniff, этот пункт не действует
+  sniffing:
+    - tls
+    - http
+  # Принудительно сниффить этот домен
+
+  # Сниффить только порты из белого списка; по умолчанию 443, 80
+  # Устарело; если настроен sniffer.sniff, этот пункт не действует
+  port-whitelist:
+    - "80"
+    - "443"
+    # - 8000-9999
+
+tunnels: # конфигурация в одну строку
+  - tcp/udp,127.0.0.1:6553,114.114.114.114:53,proxy
+  - tcp,127.0.0.1:6666,rds.mysql.com:3306,vpn
+  # полная конфигурация yaml
+  - network: [tcp, udp]
+    address: 127.0.0.1:7777
+    target: target.com
+    proxy: proxy
+
+# Настройка DNS
+dns:
+  cache-algorithm: arc
+  enable: false # При выключении используется системный DNS
+  prefer-h3: false # Включать ли поддержку HTTP/3 для DoH; будут выполняться параллельные попытки
+  listen: 0.0.0.0:53 # Включить прослушивание DNS-сервера
+  # ipv6: false # false — возвращать пустой результат для AAAA
+  # ipv6-timeout: 300 # Единица: мс; при внутреннем параллельном dual-stack запросе AAAA к upstream время ожидания AAAA, по умолчанию 100 мс
+  # Используется для разрешения nameserver, fallback и других конфигураций DNS-серверов, домен DNS-сервиса
+  # Можно использовать только чистые IP-адреса или зашифрованный DNS
+  default-nameserver:
+    - 114.114.114.114
+    - 8.8.8.8
+    - tls://1.12.12.12:853
+    - tls://223.5.5.5:853
+    - system # добавить DNS-сервер из системной конфигурации. Если не найден — вывести лог ошибки и пропустить.
+  enhanced-mode: fake-ip # или redir-host
+
+  fake-ip-range: 198.18.0.1/16 # Настройка пула fake-ip
+  # fake-ip-range6: fdfe:dcba:9876::1/64 # Настройка пула fake-ip6
+
+  # Домены, для которых не используется fake-ip
+  fake-ip-filter:
+    - '*.lan'
+    - localhost.ptlogin2.qq.com
+    # fakeip-filter — это подписка правил с именем fakeip-filter в rule-providers,
+    # причём behavior должен быть domain/classical; при classical будут действовать только правила доменов
+    - rule-set:fakeip-filter
+    # fakeip-filter — категория с именем fakeip-filter в geosite (нужно самостоятельно обеспечить наличие этой категории)
+    - geosite:fakeip-filter
+
+    # При fake-ip-filter-mode: rule включается режим правил
+    # Логика сопоставления fake-ip такая же, как у rules маршрутизации (сверху вниз), синтаксис тоже; поддерживаются GEOSITE, RuleSet, DOMAIN*, MATCH
+    - RULE-SET,reject-domain,fake-ip # behavior пользовательского RuleSet должен быть domain/classical; при classical будут действовать только правила доменов
+    - RULE-SET,proxy-domain,fake-ip
+    - GEOSITE,gfw,fake-ip
+    - DOMAIN,www.baidu.com,real-ip
+    - DOMAIN-SUFFIX,qq.com,real-ip
+    - DOMAIN-SUFFIX,jd.com,fake-ip
+    - MATCH,fake-ip # в конце fake-ip или real-ip
+
+  # Настройка режима сопоставления fake-ip-filter; по умолчанию blacklist, т.е. при совпадении fake-ip не возвращается
+  # Можно задать whitelist — тогда fake-ip возвращается только при совпадении
+  # Также можно задать rule; синтаксис режима правил см. в описании fake-ip-filter
+  fake-ip-filter-mode: blacklist
+  # Настройка TTL, возвращаемого при запросе fakeip; без необходимости не меняйте
+  fake-ip-ttl: 1
+
+  # use-hosts: true # Запрашивать hosts
+
+  # Настраивает, соблюдается ли при подключении к DNS-серверам из nameserver, fallback и nameserver-policy правила rules
+  # Если false (значение по умолчанию), эти DNS-серверы, если не указано иное, подключаются напрямую
+  # Если true, способ подключения будет сопоставляться по правилам rules (через прокси или напрямую); если указано особое значение — оно по-прежнему имеет приоритет
+  # Включать этот параметр можно только когда proxy-server-nameserver не пуст; настоятельно не рекомендуется использовать вместе с prefer-h3
+  # Кроме того, если в конфигурациях этих трёх разделов встречаются домены, они разрешаются через default-nameserver; убедитесь, что default-nameserver настроен корректно
+  respect-rules: false
+
+  # Основная конфигурация доменов DNS
+  # Поддерживаются UDP, TCP, DoT, DoH, DoQ
+  # Это основная конфигурация DNS; влияет на все прямые подключения; обеспечьте использование DNS с точным разрешением для материкового Китая
+  nameserver:
+    - 114.114.114.114 # значение по умолчанию
+    - 8.8.8.8 # значение по умолчанию
+    - tls://223.5.5.5:853 # DNS over TLS
+    - https://doh.pub/dns-query # DNS over HTTPS
+    - https://dns.alidns.com/dns-query#h3=true # Принудительный HTTP/3, не зависит от prefer-h3; принудительно включает поддержку HTTP/3 для DoH; если не поддерживается — использовать нельзя
+    - https://mozilla.cloudflare-dns.com/dns-query#DNS&h3=true # Указать策略组 и использовать HTTP/3
+    - dhcp://en0 # DNS из DHCP
+    - quic://dns.adguard.com:784 # DNS over QUIC
+    # - ts://tailscale # Использовать DNS-конфигурацию с указанным выходом Tailscale
+    # - et://easytier # Разрешать только overlay A/PTR; рекомендуется размещать в nameserver-policy
+    # - '8.8.8.8#RULES' # Эффект как у respect-rules, но только для этого сервера
+    # - '8.8.8.8#en0' # Совместимо с указанием исходящего сетевого интерфейса DNS
+
+  # При настройке fallback выполняется запрос, является ли IP, возвращённый nameserver, китайским (CN); настраивать необязательно
+  # Если не CN, используется результат запроса DNS из fallback
+  # При настройке fallback убедитесь, что запросы работают нормально
+  # fallback:
+  #   - tcp://1.1.1.1
+  #   - 'tcp://1.1.1.1#ProxyGroupName' # Указать DNS-запрос через прокси; ProxyGroupName — имя группы策略 или узла; конфигурация через прокси имеет приоритет над исходящим сетевым интерфейсом; если группа策略 или узел не найдены — используется исходящий сетевой интерфейс
+
+  # DNS-сервер, специально используемый для разрешения доменов узлов; настраивать необязательно; если не заполнен, соблюдаются nameserver-policy, nameserver и fallback
+  # proxy-server-nameserver:
+  #   - https://doh.pub/dns-query
+  #   - tls://223.5.5.5:853
+  # proxy-server-nameserver-policy: # Формат как у nameserver-policy; используется только для разрешения доменов узлов и действует только когда proxy-server-nameserver не пуст
+  #   'www.yournode.com': '114.114.114.114'
+
+  # DNS-сервер, специально используемый для разрешения доменов прямого выхода (direct); настраивать необязательно; если не заполнен, соблюдаются nameserver-policy, nameserver и fallback
+  # direct-nameserver:
+  #   - system://
+  # direct-nameserver-follow-policy: false # Соблюдать ли nameserver-policy; по умолчанию не соблюдать; действует только когда direct-nameserver не пуст
+
+  # Настройка условий использования fallback
+  # fallback-filter:
+  #   geoip: true    # Настраивает, использовать ли geoip
+  #   geoip-code: CN # Когда IP, разрешённый nameserver, по базе geoip относится к CN, используется результат запроса DNS из nameserver
+  #   ipcidr:        # Когда IP, разрешённый nameserver, попадает в ipcidr, используется результат запроса DNS из fallback
+  #     - 240.0.0.0/4
+  #     - 0.0.0.0/32
+  #     - 127.0.0.1/32
+  #     - 100.64.0.0/10
+  #   domain:        # При совпадении с этими доменами сразу используется fallback, без обращения к nameserver
+  #     - '+.google.com'
+  #     - '+.facebook.com'
+  #     - '+.youtube.com'
+  #   geosite:       # При совпадении с этими доменами сразу используется fallback, без обращения к nameserver (устарело, используйте nameserver-policy)
+  #     - gfw
+  # fallback-lazy-query: false # Значение по умолчанию false; если true, сначала проверяется, удовлетворяет ли результат из nameserver условиям fallback-filter, и только потом выполняется запрос
+
+  # Настройка DNS-серверов, используемых для запросов доменов
+  nameserver-policy:
+    #   'www.baidu.com': '114.114.114.114'
+    #   '+.internal.crop.com': '10.0.0.1'
+    "geosite:cn,private,apple":
+      - https://doh.pub/dns-query
+      - https://dns.alidns.com/dns-query
+    "geosite:category-ads-all": rcode://success
+    "www.baidu.com,+.google.cn": [223.5.5.5, https://dns.alidns.com/dns-query]
+    ## global, dns — это подписки правил с именами global и dns в rule-providers,
+    ## причём behavior должен быть domain/classical; при classical будут действовать только правила доменов
+    # "rule-set:global,dns": 8.8.8.8
+
+proxies: # socks5
+  - name: "socks"
+    type: socks5
+    server: server
+    port: 443
+    # username: username
+    # password: password
+    # tls: true
+    # fingerprint: xxxx # Настройка отпечатка реализует эффект SSL Pinning; можно получить командой openssl x509 -noout -fingerprint -sha256 -inform pem -in yourcert.pem
+    # Следующие два пункта, если заполнены, включают mTLS (нужно заполнять оба)
+    # certificate: ./client.crt # Сертификат в формате PEM либо путь к сертификату
+    # private-key: ./client.key # Приватный ключ, соответствующий сертификату, в формате PEM либо путь к ключу
+    # skip-cert-verify: true
+    # name-cert-verify: example.com # Изменяет только цель проверки DNSName сертификата, не меняет SNI
+    # udp: true
+    # ip-version: ipv6
+
+  # http
+  - name: "http"
+    type: http
+    server: server
+    port: 443
+    # username: username
+    # password: password
+    # tls: true # https
+    # skip-cert-verify: true
+    # name-cert-verify: example.com # Изменяет только цель проверки DNSName сертификата, не меняет SNI
+    # sni: custom.com
+    # fingerprint: xxxx # Настройка отпечатка реализует эффект SSL Pinning; можно получить командой openssl x509 -noout -fingerprint -sha256 -inform pem -in yourcert.pem
+    # Следующие два пункта, если заполнены, включают mTLS (нужно заполнять оба)
+    # certificate: ./client.crt # Сертификат в формате PEM либо путь к сертификату
+    # private-key: ./client.key # Приватный ключ, соответствующий сертификату, в формате PEM либо путь к ключу
+    # ip-version: dual
+
+  # Snell
+  - name: "snell"
+    type: snell
+    server: server
+    port: 44046
+    psk: yourpsk
+    # version: 4 # поддерживаются 1/2/3/4/5
+    # udp: true # поддержка UDP в версиях 3/4/5
+    # reuse: false # только v4/5
+    # obfs-opts:
+    #   mode: http # или tls/shadow-tls/restls/jls
+
+  - name: "snell-shadow-tls"
+    type: snell
+    server: server
+    port: 44046
+    psk: yourpsk
+    # version: 4 # поддерживаются 1/2/3/4/5
+    # udp: true # поддержка UDP в версиях 3/4/5
+    # reuse: false # только v4/5
+    # client-fingerprint: chrome
+    obfs-opts:
+      mode: shadow-tls
+      host: bing.com
+      password: "shadow_tls_password"
+      version: 2 # поддерживаются 1/2/3
+      alpn: ["h2","http/1.1"]
+
+  - name: "snell-restls"
+    type: snell
+    server: server
+    port: 44046
+    psk: yourpsk
+    # version: 4 # поддерживаются 1/2/3/4/5
+    # client-fingerprint: chrome
+    obfs-opts:
+      mode: restls
+      host: bing.com
+      password: "restls_password"
+      version-hint: tls13
+
+  - name: "snell-jls"
+    type: snell
+    server: server
+    port: 44046
+    psk: yourpsk
+    # version: 4 # поддерживаются 1/2/3/4/5
+    # client-fingerprint: chrome
+    obfs-opts:
+      mode: jls
+      host: bing.com
+      username: jls-user
+      password: "jls_password"
+
+  # Shadowsocks
+  # Поддерживаемые cipher:
+  #   aes-128-gcm aes-192-gcm aes-256-gcm
+  #   aes-128-cfb aes-192-cfb aes-256-cfb
+  #   aes-128-ctr aes-192-ctr aes-256-ctr
+  #   rc4-md5 chacha20-ietf xchacha20
+  #   chacha20-ietf-poly1305 xchacha20-ietf-poly1305
+  #   2022-blake3-aes-128-gcm 2022-blake3-aes-256-gcm 2022-blake3-chacha20-poly1305
+  - name: "ss1"
+    type: ss
+    server: server
+    port: 443
+    cipher: chacha20-ietf-poly1305
+    password: "password"
+    # udp: true
+    # udp-over-tcp: false
+    # ip-version: ipv4 # Задать используемую версию IP для узла: dual, ipv4, ipv6, ipv4-prefer, ipv6-prefer. По умолчанию dual
+    # ipv4: только IPv4  ipv6: только IPv6
+    # ipv4-prefer: предпочитать IPv4; для TCP выполняется dual-stack разрешение с параллельным подключением, но предпочтение отдаётся IPv4,
+    # для UDP — dual-stack разрешение, берётся первый IPv4 из результата
+    # ipv6-prefer аналогично ipv4-prefer
+    # Все существующие протоколы поддерживают этот параметр; эффект для TCP проявляется только при включённом tcp-concurrent
+    smux:
+      enabled: false
+      protocol: smux # smux/yamux/h2mux
+      # max-connections: 4 # Максимальное число соединений. Конфликтует с max-streams.
+      # min-streams: 4 # Минимальное число мультиплексированных потоков в соединении перед открытием нового соединения. Конфликтует с max-streams.
+      # max-streams: 0 # Максимальное число мультиплексированных потоков в соединении перед открытием нового соединения. Конфликтует с max-connections и min-streams.
+      # padding: false # Включить padding. Требуется версия сервера sing-box 1.3-beta9 или новее.
+      # statistic: false # Управляет тем, отображается ли нижележащее соединение в панели, чтобы было удобно прервать нижележащее соединение
+      # only-tcp: false # Если true, настройки smux не будут действовать на UDP; UDP-соединения пойдут напрямую по нижележащему протоколу
+
+  - name: "ss2"
+    type: ss
+    server: server
+    port: 443
+    cipher: chacha20-ietf-poly1305
+    password: "password"
+    plugin: obfs
+    plugin-opts:
+      mode: tls # или http
+      # host: bing.com
+
+  - name: "ss3"
+    type: ss
+    server: server
+    port: 443
+    cipher: chacha20-ietf-poly1305
+    password: "password"
+    plugin: v2ray-plugin
+    plugin-opts:
+      mode: websocket # сейчас без QUIC
+      # tls: true # wss
+      # fingerprint: xxxx # Настройка отпечатка реализует эффект SSL Pinning; можно получить командой openssl x509 -noout -fingerprint -sha256 -inform pem -in yourcert.pem
+      # Следующие два пункта, если заполнены, включают mTLS (нужно заполнять оба)
+      # certificate: ./client.crt # Сертификат в формате PEM либо путь к сертификату
+      # private-key: ./client.key # Приватный ключ, соответствующий сертификату, в формате PEM либо путь к ключу
+      # ech-opts:
+      #   enable: true # Нужно включать вручную
+      #   # Если config пуст, разрешение выполняется через DNS; если не пуст — используется указанное значение, формат — ECH-параметры в base64 (dig +short

@@ -1,5 +1,5 @@
 #!/bin/bash
-#
+# Версия: 3.2.0 2026-11-05
 # Скрипт обновления конфигурации.
 #
 # Работает в двух режимах:
@@ -80,7 +80,8 @@ fi
 # Конфигурация
 # ------------------------------------------------------------------------------
 CN_CIDR_URL="${CN_CIDR_URL:-https://cdn.jsdelivr.net/gh/gaoyifan/china-operator-ip@ip-lists/china.txt}"
-RU_CIDR_URL="${RU_CIDR_URL:-https://raw.githubusercontent.com/herrbischoff/country-ip-blocks/master/ipv4/ru.txt}"
+#RU_CIDR_URL="${RU_CIDR_URL:-https://raw.githubusercontent.com/herrbischoff/country-ip-blocks/master/ipv4/ru.txt}"
+RU_CIDR_URL="${RU_CIDR_URL:-https://raw.githubusercontent.com/ipverse/rir-ip/master/country/ru/ipv4-aggregated.txt}"
 
 CIDR_FILE_CN="${STAGING_DIR}/cn_cidr.txt"
 CIDR_FILE_RU="${STAGING_DIR}/ru_cidr.txt"

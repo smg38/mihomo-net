@@ -1,0 +1,123 @@
+# =============================================================================
+# template/config_C.yaml.j3 — шаблон конфигурации сервера C
+# Версия: 3.2.0   2026-11-5
+# Автор: @smg38
+# Сервер C: принимает внешних пользователей и релей B (UUID_BC),
+# релеит не-RU/CN трафик на B (UUID_BC).
+# =============================================================================
+allow-lan: true
+bind-address: "*"
+mode: rule
+log-level: info
+external-controller: 127.0.0.1:9900
+secret: "{{ SECRET_KEY_C }}"
+ipv6: false
+#external-ui: ui
+# geo-auto-update: true
+# geo-update-interval: 24
+# geox-url:
+#   geosite: "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat"
+#   geoip: "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.dat"
+
+listeners:
+  # - name: trojan-in
+  #   type: trojan
+  #   port: 11443
+  #   listen: 0.0.0.0
+  #   allow-insecure: true
+  #   users:
+  #     - username: dasha
+  #       password: Test1234Test
+  - name: ss-in
+    type: shadowsocks
+    port: 18443
+    listen: 0.0.0.0
+    cipher: chacha20-ietf-poly1305
+    password: Test1234Test
+    udp: true
+    plugin: obfs
+    plugin-opts:
+      mode: tls # или http
+  - name: vless-in
+    type: vless
+    port: {{ PORT_C }}
+    listen: 0.0.0.0
+    users:
+      - username: serverB
+        flow: {{ FLOW_AB }}
+        uuid: "{{ UUID_BC }}"
+      - username: serverD
+        flow: {{ FLOW_AB }}
+        uuid: "{{ UUID_DC }}"
+{% for u in USERS_C %}
+      - username: {{ u }}
+        flow: {{ FLOW_USERS }}
+        uuid: "{{ UUID_C_{{ u }} }}"
+{% endfor %}
+    reality-config:
+      dest: "{{ SERVERNAME }}:443"
+      private-key: "{{ PRIVATE_KEY_C }}"
+      short-id: ["{{ SHORT_ID_C }}"]
+      server-names:
+        - "{{ SERVERNAME }}"
+      support-x25519mlkem768: false
+#        - "dl.google.com"
+
+proxies:
+  - name: "to-serverB"
+    type: vless
+    server: {{ IP_B }}
+    port: {{ PORT_B }}
+    flow: {{ FLOW_AB }}
+    uuid: "{{ UUID_BC }}"
+    network: tcp
+    reality-opts:
+      public-key: "{{ PUBLIC_KEY_B }}"
+      short-id: "{{ SHORT_ID_B }}"
+      support-x25519mlkem768: false
+    servername: {{ SERVERNAME }}
+    client-fingerprint: {{ FINGERPRINT }}
+    tls: true
+    udp: true
+
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies:
+      - to-serverB
+      - DIRECT
+
+dns:
+  enable: true
+  listen: 0.0.0.0:1053
+  cache-algorithm: arc
+  ipv6: false
+  enhanced-mode: redir-host
+  nameserver:
+    - 77.88.8.8
+    - 8.8.8.8
+  # fallback:
+  #   - tls://1.1.1.1:853
+
+rules:
+  - DOMAIN,{{ SERVERNAME }},DIRECT,no-resolve
+  #- IN-USER,serverB,DIRECT
+  - DOMAIN-SUFFIX,ru,DIRECT
+  - DOMAIN-SUFFIX,su,DIRECT
+  - DOMAIN-SUFFIX,xn--p1ai,DIRECT
+  - IP-CIDR,1.1.1.1/32,PROXY,no-resolve
+  - IP-CIDR,8.8.8.8/32,PROXY,no-resolve
+  - IP-CIDR,1.0.0.1/32,PROXY,no-resolve
+  - DST-PORT,53,PROXY    # Принудительно отправляем UDP DNS на сервер B
+  - DST-PORT,853,PROXY   # Принудительно отправляем DoT на сервер B
+  # - DOMAIN-SUFFIX,dns.google,DIRECT          # ← добавить
+  # - DOMAIN-SUFFIX,cloudflare-dns.com,DIRECT  # ← добавить
+  # - DOMAIN-SUFFIX,one.one.one.one,DIRECT     # ← добавить
+  - GEOSITE,category-ru,DIRECT
+#  - GEOSITE,cn,DIRECT
+#  - GEOIP,CN,DIRECT,no-resolve
+  - GEOIP,RU,DIRECT,no-resolve
+  - GEOIP,private,DIRECT,no-resolve
+  - MATCH,PROXY
+  #- GEOSITE,ru,DIRECT
+  #error: list ru not found in GeoSite.dat

@@ -1,0 +1,126 @@
+# =============================================================================
+# template/config_B.yaml.j3 — шаблон конфигурации сервера B
+# Версия: 3.2.0   2026-11-5
+# Автор: @smg38
+# Сервер B: релей между A и C.
+#   - принимает входящие VLESS от A (UUID_BA) и C (UUID_BC)
+#   - трафик от A/C в RU/CN — отдаёт в C (UUID_BC)
+#   - весь остальной трафик — Direct в интернет
+# =============================================================================
+allow-lan: true
+bind-address: "*"
+mode: rule
+#log-level: debug 
+log-level: info
+external-controller: 127.0.0.1:9900
+secret: "{{ SECRET_KEY_B }}"
+ipv6: false
+
+listeners:
+{% if LISTEN_B == "vless"  %}
+  - name: vless-in
+    type: vless
+    port: {{ PORT_B }}
+    listen: 0.0.0.0
+    users:
+      - username: serverA
+        flow: {{ FLOW_AB }}
+        uuid: "{{ UUID_BA }}"
+      - username: serverC
+        flow: {{ FLOW_AB }}
+        uuid: "{{ UUID_BC }}"
+      - username: serverD
+        flow: {{ FLOW_AB }}
+        uuid: "{{ UUID_DB }}"
+    reality-config:
+      dest: "{{ SERVERNAME }}:443"
+      private-key: "{{ PRIVATE_KEY_B }}"
+      short-id:
+        - "{{ SHORT_ID_B }}"
+      server-names:
+        - "{{ SERVERNAME }}"
+#        - "dl.google.com"
+      support-x25519mlkem768: false
+{% endif %}
+{% if LISTEN_B == "hysteria2"  %}
+# =============================================================================
+# Hysteria2 Server Config
+# =============================================================================
+  listen: :{{ PORT_B }}  # Например, :8443, обязательно UDP-порт
+
+  # ---  Самоподписанный сертификат (без доменного имени) ---
+  tls:
+    cert: build/B/hysteria-server.crt
+    key: build/B/hysteria-server.key
+
+  # Аутентификация: пароль, который будет использоваться клиентом
+  auth:
+    type: password
+    password: "{{ HY2_PASSWORD }}"
+
+  # ===== Ключевой момент: включение обфускации =====
+  obfs:
+    type: salamander
+    salamander:
+      password: "{{ HY2_OBFS_PASSWORD }}"
+
+# Маскировка (опционально): при обычном доступе через браузер показывает содержимое указанного сайта
+# masquerade:
+#   type: proxy
+#   proxy:
+#     url: https://www.bing.com
+#     rewriteHost: true
+
+# Ограничение скорости (опционально), серверная сторона up/down — это ограничение для одного клиента
+# up: "100 Mbps"
+# down: "100 Mbps"
+{% endif %}
+
+proxies:
+  - name: "to-serverC"
+    type: vless
+    server: {{ IP_C }}
+    port: {{ PORT_C }}
+    flow: {{ FLOW_AB }}
+    uuid: "{{ UUID_BC }}"
+    network: tcp
+    reality-opts:
+      public-key: "{{ PUBLIC_KEY_C }}"
+      short-id: "{{ SHORT_ID_C }}"
+      support-x25519mlkem768: false
+    servername: {{ SERVERNAME }}
+    client-fingerprint: {{ FINGERPRINT }}
+    tls: true
+    udp: true
+
+proxy-groups:
+  - name: PROXY
+    type: select
+    proxies:
+      - to-serverC
+      - DIRECT
+
+# dns:
+#   enable: true
+#   listen: 0.0.0.0:1053
+#   cache-algorithm: arc
+#   ipv6: false
+#   enhanced-mode: redir-host
+#   nameserver:
+#     - 77.88.8.8
+#     - 8.8.8.8
+#   fallback:
+#     - tls://1.1.1.1:853
+
+rules:
+  - DOMAIN,{{ SERVERNAME }},DIRECT,no-resolve
+#  - IN-USER,serverA,DIRECT
+#  - IN-USER,serverC,DIRECT
+  - DOMAIN-SUFFIX,dns.google,DIRECT          # ← добавить
+  - DOMAIN-SUFFIX,cloudflare-dns.com,DIRECT  # ← добавить
+  - DOMAIN-SUFFIX,one.one.one.one,DIRECT     # ← добавить
+  - GEOSITE,category-ru,to-serverC
+  - GEOIP,CN,PROXY,no-resolve
+  - GEOIP,RU,PROXY,no-resolve
+  - GEOIP,private,DIRECT,no-resolve
+  - MATCH,DIRECT

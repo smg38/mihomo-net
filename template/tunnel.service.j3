@@ -1,0 +1,33 @@
+# =============================================================================
+# template/tunnel.service.j3 — reverse SSH tunnel D -> C (управление D через C)
+# Версия: 3.2.0   2026-11-5
+# Автор: @smg38
+# Сервер D: reverse SSH-туннель на сервер C (loopback на C, GatewayPorts=no).
+#   - слушает на C
+# Порт на C слушает ТОЛЬКО 127.0.0.1 (GatewayPorts=no на C + 127.0.0.1: в -R).
+# Переменные: TUNNEL_KEY, TUNNEL_C_PORT, TUNNEL_REMOTE_PORT, TUNNEL_C_USER, TUNNEL_C_HOST.
+# =============================================================================
+[Unit]
+Description=Reverse SSH tunnel D -> C (management only, loopback on C)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/ssh -i {{ TUNNEL_KEY }} -p {{ TUNNEL_C_PORT }} \
+    -o BatchMode=yes \
+    -o IdentitiesOnly=yes \
+    -o ExitOnForwardFailure=yes \
+    -o ServerAliveInterval=30 \
+    -o ServerAliveCountMax=3 \
+    -o StrictHostKeyChecking=accept-new \
+    -o UserKnownHostsFile=/root/.ssh/known_hosts_tunnel \
+    -o GatewayPorts=no \
+    -N -R 127.0.0.1:{{ TUNNEL_REMOTE_PORT }}:localhost:22 \
+    {{ TUNNEL_C_USER }}@{{ TUNNEL_C_HOST }}
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target  
