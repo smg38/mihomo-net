@@ -1,0 +1,82 @@
+# Go скомпилированный продукт
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/mihomo-manager
+/mihomo-manager-*
+
+# Go тестовые файлы
+*.test
+*.out
+*.prof
+
+# Go файлы рабочей области
+go.work
+go.work.sum
+
+# Зависимости и кеширование
+/vendor/
+.cache/
+
+# IDE и редакторы
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Системные файлы
+.DS_Store
+Thumbs.db
+
+# файл журнала
+*.log
+logs/
+
+# Файлы конфигурации (могут содержать конфиденциальную информацию)
+.env
+.env.local
+.env.*.local
+
+# временные файлы
+tmp/
+temp/
+
+# Построить вывод
+/build/
+/dist/
+
+# файл времени выполнения
+*.pid
+*.seed
+*.pid.lock
+
+# отчет о покрытии
+coverage.txt
+coverage.html
+
+# Документы, связанные с Mihomo
+config.yaml
+cn_cidr.txt
+.config_hash
+.cidr_hash
+.env_hash
+.cidr_timestamp
+ui/
+
+# Резервные файлы
+*.backup
+*.bak
+
+# сжатый файл
+*.tar.gz
+*.zip
+
+# Настройка транзакций обновления, частных точек восстановления и артефактов локальной проверки.
+.update-state/
+.tmp/
+mihomo-ru-project.txt
+projmap_config.yaml
+projmap_index.csv

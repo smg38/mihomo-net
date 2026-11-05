@@ -1,0 +1,84 @@
+name: исследовать
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOTOOLCHAIN: local
+
+jobs:
+  checks:
+    name: исследовать (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.mod
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+      - name: Синтаксис формата и сценария
+        shell: bash
+        run: |
+          unformatted=$(git ls-files -z '*.go' | xargs -0 gofmt -l)
+          if [ -n "$unformatted" ]; then
+            printf 'Следующие файлы Go необходимо отформатировать.：\n%s\n' "$unformatted"
+            exit 1
+          fi
+          git ls-files -z '*.sh' | xargs -0 -n 1 bash -n
+      - name: Статическая проверка
+        run: go vet ./...
+      - name: Условия гонки и регрессионное тестирование пользовательского интерфейса
+        run: go test -race ./...
+      - name: Менеджер сборки
+        run: |
+          mkdir -p .tmp
+          go build -trimpath -ldflags '-w -s' -o .tmp/mihomo-manager ./cmd/mihomo-manager
+
+  targets:
+    name: Целевая архитектура сборки
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.mod
+      - name: Linux и macOS строить
+        shell: bash
+        run: |
+          mkdir -p .tmp
+          for target_os in linux darwin; do
+            for target_arch in amd64 arm64; do
+              CGO_ENABLED=0 GOAMD64=v1 GOARM64=v8.0 GOOS="$target_os" GOARCH="$target_arch" \
+                go build -trimpath -ldflags '-w -s' -o ".tmp/mihomo-manager-$target_os-$target_arch" ./cmd/mihomo-manager
+            done
+          done
+          for target_arm in 6 7; do
+            CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM="$target_arm,softfloat" \
+              go build -trimpath -ldflags '-w -s' -o ".tmp/mihomo-manager-linux-arm-$target_arm" ./cmd/mihomo-manager
+          done
+          CGO_ENABLED=0 GOOS=linux GOARCH=386 GO386=softfloat \
+            go build -trimpath -ldflags '-w -s' -o .tmp/mihomo-manager-linux-386 ./cmd/mihomo-manager
