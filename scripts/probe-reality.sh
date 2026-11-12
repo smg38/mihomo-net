@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================================
 # scripts/probe-reality.sh — сквозная проверка Reality-аутентификации
-# Версия: 3.2.0   2026-11-5
+# Версия: 3.3.0   2026-11-07
 # Автор: @smg38
 #
 # Поднимает локальный клиент mihomo с ключами из build/keys и пробует
@@ -24,7 +24,7 @@ set -uo pipefail
 cd "$(cd "$(dirname "$0")/.." && pwd)"
 
 source deploy/lib/env.sh
-load_env_file build/keys/params.env || { echo "нет params.env"; exit 1; }
+load_env_file_literal build/keys/params.env || { echo "нет или ошибка в params.env"; exit 1; }
 load_env_file build/keys/keys.env   || { echo "нет keys.env"; exit 1; }
 
 BIN="${MIHOMO_BIN:-.tmp/mihomo}"

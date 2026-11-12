@@ -1,11 +1,12 @@
 #!/bin/bash
 # =============================================================================
 # scripts/D-diagnose.sh — диагностика сервера D. Запускать на A (inspiron).
-# Версия 3.2.0   2026-11-5
+# Версия 3.3.0   2026-11-07
 # Автор: @smg38
 #
 # Использование:
 #   scripts/D-diagnose.sh               # полный прогон
+#   scripts/D-diagnose.sh --instance D2 # выбрать экземпляр D
 #   scripts/D-diagnose.sh --no-client   # без клиентского теста (без sudo)
 #   scripts/D-diagnose.sh --no-c        # без tcpdump на C и зондов с B
 #   scripts/D-diagnose.sh --use-b       # переключить группу PROXY на D в to-serverB и выйти
@@ -38,21 +39,35 @@ bad()  { printf '%s  ✗%s %s\n' "$C_RED" "$C_RESET" "$1"; BAD_N=$((BAD_N+1)); }
 warn() { printf '%s  ⚠%s %s\n' "$C_YELLOW" "$C_RESET" "$1"; WARN_N=$((WARN_N+1)); }
 
 # --- Аргументы ---------------------------------------------------------------
-DO_CLIENT=true; DO_C=true; ACTION=""
-for arg in "$@"; do
-    case "$arg" in
+DO_CLIENT=true; DO_C=true; ACTION=""; INSTANCE_ID=D
+while [[ $# -gt 0 ]]; do
+    case "$1" in
         --no-client) DO_CLIENT=false ;;
         --no-c)      DO_C=false ;;
         --use-b)     ACTION="to-serverB" ;;
         --use-c)     ACTION="to-serverC" ;;
-        -h|--help)   sed -n '2,20p' "$0" | sed 's/^# \?//'; exit 0 ;;
-        *) echo "Неизвестный аргумент: $arg" >&2; exit 2 ;;
+        --instance)
+            [[ $# -ge 2 ]] || { echo "--instance требует ID" >&2; exit 2; }
+            INSTANCE_ID="$2"
+            shift 2
+            continue
+            ;;
+        -h|--help)   sed -n '2,21p' "$0" | sed 's/^# \?//'; exit 0 ;;
+        *) echo "Неизвестный аргумент: $1" >&2; exit 2 ;;
     esac
+    shift
 done
 
-# --- Параметры (deploy/lib/env.sh раскрывает ${IP_C} и т.п.) -----------------
+# --- Параметры (только буквальные значения) ----------------------------------
+[[ "$INSTANCE_ID" =~ ^[A-Za-z0-9][A-Za-z0-9_]*$ ]] || { echo "Недопустимый ID: $INSTANCE_ID" >&2; exit 2; }
 source "$PROJECT_ROOT/deploy/lib/env.sh"
-load_env_file "$PROJECT_ROOT/build/keys/params.env" || { echo "Нет build/keys/params.env" >&2; exit 2; }
+PARAMS_ENV="$PROJECT_ROOT/build/keys/params.env"
+INSTANCE_ENV="$PROJECT_ROOT/build/instances/$INSTANCE_ID.env"
+load_env_file_literal "$PARAMS_ENV" || { echo "Нет или ошибка в build/keys/params.env" >&2; exit 2; }
+if [[ "$INSTANCE_ID" != D ]]; then
+    validate_d_instance_file "$INSTANCE_ENV" || { echo "Ошибка в $INSTANCE_ENV" >&2; exit 2; }
+    load_env_file_literal "$INSTANCE_ENV" || { echo "Нет или ошибка в $INSTANCE_ENV" >&2; exit 2; }
+fi
 for v in IP_D IP_B IP_C PORT_B PORT_C SERVERNAME SECRET_KEY_D; do
     [[ -n "${!v:-}" ]] || { echo "В params.env не задан $v" >&2; exit 2; }
 done

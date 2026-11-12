@@ -1,6 +1,6 @@
 # =============================================================================
 # template/config_B.yaml.j3 — шаблон конфигурации сервера B
-# Версия: 3.2.0   2026-11-5
+# Версия: 3.3.0   2026-11-07
 # Автор: @smg38
 # Сервер B: релей между A и C.
 #   - принимает входящие VLESS от A (UUID_BA) и C (UUID_BC)
@@ -29,9 +29,11 @@ listeners:
       - username: serverC
         flow: {{ FLOW_AB }}
         uuid: "{{ UUID_BC }}"
-      - username: serverD
+{% for d in D_TO_B_INSTANCES %}
+      - username: server{{ d }}
         flow: {{ FLOW_AB }}
-        uuid: "{{ UUID_DB }}"
+        uuid: "{{ UUID_DB_{{ d }} }}"
+{% endfor %}
     reality-config:
       dest: "{{ SERVERNAME }}:443"
       private-key: "{{ PRIVATE_KEY_B }}"

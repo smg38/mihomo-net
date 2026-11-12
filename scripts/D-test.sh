@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================================
 # D-test.sh — самопроверка сервера D (запускать НА D).
-# Версия: 3.2.0   2026-11-5
+# Версия: 3.3.0   2026-11-07
 # Автор: @smg38
 # Проверяет: порты, nftables/routing, DNS, связь с C/B, direct, socks5-через-D,
 # Reality-апстримы, TProxy-перехват LAN-трафика, геофильтрацию, health-check.
@@ -18,21 +18,23 @@ warn() { printf '  \033[0;33m⚠\033[0m %s\n' "$*" >&2; WARN=$((WARN+1)); }
 info() { printf '  · %s\n' "$*"; }
 hdr()  { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 
-DIR_D="${DIR_D:-/opt/mihomo}"
-CONFIG="$DIR_D/config.yaml"
-[[ -f "$CONFIG" ]] || { echo "Нет $CONFIG"; exit 1; }
+DIR_D="${DIR_D:-$(cd "$(dirname "$0")" && pwd)}"
 
 if [[ -f "$DIR_D/D-config" ]]; then
   # shellcheck disable=SC1091
   source "$DIR_D/D-config"
 fi
+CONFIG="$DIR_D/config.yaml"
+[[ -f "$CONFIG" ]] || { echo "Нет $CONFIG"; exit 1; }
+PORT_D="${PORT_D:-7893}"
+DNS_PORT="${DNS_PORT:-1053}"
 SECRET=$(awk -F'"' '/^secret:/{print $2; exit}' "$CONFIG")
 API_AUTH=""
 [[ -n "$SECRET" ]] && API_AUTH="Authorization: Bearer $SECRET"
 
 # --- 1. Порты ---
 hdr "1. Порты mihomo"
-for spec in "tcp:7890" "tcp:7893" "tcp:1053" "udp:7890" "udp:7893" "udp:1053"; do
+for spec in "tcp:7890" "tcp:${PORT_D}" "tcp:${DNS_PORT}" "udp:7890" "udp:${PORT_D}" "udp:${DNS_PORT}"; do
   proto="${spec%%:*}"; port="${spec##*:}"
   if [[ "$proto" == "tcp" ]]; then
     ss -tln | grep -q ":${port} " && ok "$proto :$port LISTEN" || bad "$proto :$port не слушает"
@@ -57,9 +59,9 @@ check_nft_chain() {
     bad "nft $chain: $label отсутствует"
   fi
 }
-check_nft_chain "tproxy to :7893"    PREROUTING     'tproxy to :7893'
+check_nft_chain "tproxy to :$PORT_D" PREROUTING     "tproxy to :$PORT_D"
 check_nft_chain "fwmark 1"           PREROUTING     'mark set 0x00000001'
-check_nft_chain "dns redirect :1053" PREROUTING_DNS 'redirect to :1053'
+check_nft_chain "dns redirect :$DNS_PORT" PREROUTING_DNS "redirect to :$DNS_PORT"
 
 n=$(ip rule show | grep -cE '^[0-9]+:[[:space:]]+from all fwmark 0x1 lookup 100$')
 (( n == 1 )) && ok "ip rule fwmark 0x1 lookup 100 (ровно одна)" || bad "ip rule fwmark 0x1: $n шт."
@@ -139,7 +141,7 @@ fi
 
 # --- 7b. Резолв ifconfig.me через DNS D ---
 hdr "7b. Резолв ifconfig.me через DNS D"
-resolved=$(dig @127.0.0.1 -p 1053 ifconfig.me +short 2>/dev/null | head -3 | tr '\n' ' ')
+resolved=$(dig @127.0.0.1 -p "$DNS_PORT" ifconfig.me +short 2>/dev/null | head -3 | tr '\n' ' ')
 if [[ -n "$resolved" ]]; then
   ok "ifconfig.me → $resolved"
   # Если хоть один IP попадает в GEOIP RU/CN — это объясняет DIRECT

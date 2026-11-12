@@ -11,7 +11,9 @@
 напрямую (режим `local`) или всё в C/B (режим `remote`).
 
 D за NAT, публичного IP нет. Управление — через **C** (reverse SSH туннель
-D → C, порт `2222` слушает только `127.0.0.1` на C).
+D → C, порт `2222` слушает только `127.0.0.1` на C). Это описание относится
+к экземпляру `D`; несколько шлюзов типа D настраиваются отдельными файлами
+экземпляров (см. §11).
 
 ---
 
@@ -45,7 +47,7 @@ A ──SSH──► C ──ProxyCommand──► D:22   (деплой, диа�
 
 - `build/keys/params.env` с блоком D (см. §3).
 - `build/C/GeoSite.dat` (RoscomVPN, с `category-ru`) — **обязательно**.
-  Если нет — `build-servers.sh D build` скачает с
+  Если нет — `scripts/build-servers.sh D --build` скачает с
   `https://github.com/hydraponique/roscomvpn-geosite/releases/latest/download/geosite.dat`.
 - `build/C/geoip.metadb` — опционально (если нет, D качает сам).
 - SSH A → C работает (`root@IP_C`).
@@ -69,6 +71,9 @@ A ──SSH──► C ──ProxyCommand──► D:22   (деплой, диа�
 
 ## 3. Параметры (`build/keys/params.env`)
 
+Для текущего одиночного D эти буквальные значения задаются в общем `params.env`.
+Подстановки вида `${IP_C}` запрещены: указывайте фактические адреса и значения.
+
 Добавить блок D:
 
 ```bash
@@ -87,20 +92,14 @@ SECRET_KEY_D=manager
 GEO_MODE=local
 
 # Reverse SSH tunnel D -> C (управление D через C)
-TUNNEL_C_HOST=${IP_C}
+TUNNEL_C_HOST=94.232.248.179
 TUNNEL_C_USER=root
 TUNNEL_C_PORT=22
 TUNNEL_REMOTE_PORT=2222         # слушает 127.0.0.1 на C
 TUNNEL_KEY=/root/.ssh/id_ed25519_tunnel
 
-# Как A подключается к D (для build-servers.sh D deploy)
-JUMP_D_HOST=${IP_C}
-JUMP_D_USER=root
-JUMP_D_SSH_PORT=22
-REMOTE_PORT_D=2222
-
 # Web на C (публикация D-install.run)
-WEB_IP=${IP_C}
+WEB_IP=94.232.248.179
 WEB_DIR_REMOTE=/var/www/html/mihomo
 KEYS_DIR_REMOTE=/opt/mihomo/keys
 D_INSTALL_TTL=28800             # 8 часов
@@ -111,9 +110,7 @@ D_INSTALL_TTL=28800             # 8 часов
 Ключи (`UUID_D`, `UUID_DC`, `UUID_DB`, `PRIVATE_KEY_D`, `PUBLIC_KEY_D`,
 `SHORT_ID_D`) генерируются `ensure_key D / DC / DB` в `build_D`.
 
----
-
-## 4. Сборка (`build-servers.sh D build`)
+## 4. Сборка (`scripts/build-servers.sh D --build`)
 
 ### 4.1 Что делает
 
@@ -163,7 +160,7 @@ D_INSTALL_TTL=28800             # 8 часов
 ### 4.2 Команда
 
 ```bash
-scripts/build-servers.sh D build
+scripts/build-servers.sh D --build
 ```
 
 Выход:
@@ -180,7 +177,7 @@ build/D/D-install.run.sha256
 
 ---
 
-## 5. Публикация на C (`build-servers.sh D publish`)
+## 5. Публикация на C (`scripts/build-servers.sh D --publish`)
 
 ### 5.1 Что делает
 
@@ -193,7 +190,7 @@ build/D/D-install.run.sha256
 ### 5.2 Команда
 
 ```bash
-scripts/build-servers.sh D publish
+scripts/build-servers.sh D --publish
 ```
 
 Выход:
@@ -227,7 +224,7 @@ curl -fsSL http://IP_C/mihomo/once/<hash>.run | sha256sum   # совпадает
 ### 6.1 Канал 1: прямой SSH A → D (если A видит D по LAN)
 
 ```bash
-scripts/build-servers.sh D build
+scripts/build-servers.sh D --build
 scripts/D-setup.sh          # scp + ssh 'sh /tmp/D-install.run'
 ```
 
@@ -239,11 +236,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$PROJECT_ROOT/deploy/lib/env.sh"
-load_env_file "$PROJECT_ROOT/build/keys/params.env" || exit 1
+load_env_file_literal "$PROJECT_ROOT/build/keys/params.env" || exit 1
 : "${IP_D:?IP_D не задан}"
 
 installer="$PROJECT_ROOT/build/D/D-install.run"
-[[ -f "$installer" ]] || { echo "Нет $installer (сначала: build-servers.sh D build)" >&2; exit 1; }
+[[ -f "$installer" ]] || { echo "Нет $installer (сначала: scripts/build-servers.sh D --build)" >&2; exit 1; }
 
 echo "==> Копирование $installer на D ($IP_D)"
 scp -q "$installer" "root@$IP_D:/tmp/D-install.run"
@@ -255,8 +252,8 @@ ssh "root@$IP_D" 'sh /tmp/D-install.run'
 
 1. На A:
    ```bash
-   scripts/build-servers.sh D build
-   scripts/build-servers.sh D publish
+   scripts/build-servers.sh D --build
+   scripts/build-servers.sh D --publish
    ```
    Получить `URL` и `SHA256`.
 
@@ -304,7 +301,7 @@ sh /tmp/D-install.run --tunnel-key /tmp/D-tunnel.key
    - `ip rule show | grep 'fwmark 0x1 lookup 100'` — правило есть?
    - `ss -tln | grep ':7893 '` — tproxy слушает?
    - `ss -tln | grep ':1053 '` — DNS слушает?
-10. Печатает итог: `D установлен. Дальше с A: build-servers.sh D deploy`.
+10. Печатает итог: `D установлен. Дальше с A: scripts/build-servers.sh D --deploy`.
 
 ### 6.4 Настройка клиентов LAN
 
@@ -319,13 +316,13 @@ sh /tmp/D-install.run --tunnel-key /tmp/D-tunnel.key
 
 ---
 
-## 7. Обновления (`build-servers.sh D deploy`)
+## 7. Обновления (`scripts/build-servers.sh D --deploy`)
 
 После bootstrap туннель работает, D доступен через `A → C → D`.
 
 ```bash
-scripts/build-servers.sh D build    # пересобрать артефакты
-scripts/build-servers.sh D deploy   # залить на D через ProxyCommand C
+scripts/build-servers.sh D --build    # пересобрать артефакты
+scripts/build-servers.sh D --deploy   # залить на D через ProxyCommand C
 ```
 
 `deploy_D`:
@@ -454,9 +451,85 @@ ssh -o "ProxyCommand=ssh root@IP_C -W %h:%p" -p 2222 root@localhost 'hostname'
 
 1. **`D_INSTALL_TTL`** — 8 часов (28800). Если нужно больше — изменить в `params.env`.
 2. **`GEO_MODE`** — по умолчанию `local`. Если в LAN есть внешние пользователи, которым нужен весь трафик через C — `remote`.
-3. **`GeoSite.dat`** — RoscomVPN (с `category-ru`). Обновление — вручную (пересобрать `build/C/GeoSite.dat` из upstream и `build-servers.sh D build`).
+3. **`GeoSite.dat`** — RoscomVPN (с `category-ru`). Обновление — вручную (пересобрать `build/C/GeoSite.dat` из upstream и выполнить `scripts/build-servers.sh D --build`).
 4. **`geoip.metadb`** — если `build/C/geoip.metadb` нет, D качает с jsDelivr. Если нужен офлайн — положить в `build/C/geoip.metadb`.
 5. **`--with-cidr` / `--with-geosite`** — убраны. Всё включено всегда. Уменьшение размера — потом (через `--minimal`).
+
+---
+
+## 11. Несколько экземпляров типа D
+
+Общие значения по умолчанию остаются в `build/keys/params.env`. Для каждого
+дополнительного шлюза создайте отдельный файл, например
+`build/instances/D2.env`, скопировав
+[`template/instances/D2.env.example`](../template/instances/D2.env.example).
+Разрешённые подключения задаются независимо в `params.env`:
+
+```dotenv
+D_TO_B_INSTANCES="D D2"
+D_TO_C_INSTANCES="D"
+```
+
+Это означает, что D и D2 имеют учётные записи на B, а на C — только D.
+Каждый список может быть пустым, если для всех экземпляров настроено другое
+направление. Экземпляр должен быть включён хотя бы в один список. По этим же
+спискам конфиг самого D включает соответствующие VLESS-выходы на B и C.
+Списки не управляют reverse SSH-туннелем D → C, который нужен для управления.
+Если в старом `params.env` не заданы оба списка, сохраняется прежнее поведение:
+экземпляр D подключается к B и C. Если задан только один список, второй считается
+пустым — указывайте оба значения явно, чтобы конфигурация была однозначной.
+ID должен начинаться с буквы или цифры и содержать только буквы, цифры и `_`.
+Имена overlay-файлов в `build/instances/` образуют список настроенных
+экземпляров; отдельный общий список экземпляров не нужен.
+В нём указываются только отличия от общих параметров; при загрузке значения
+из файла экземпляра переопределяют одноимённые значения `params.env`.
+
+Файлы `params.env` и `instances/*.env` должны содержать только буквальные
+значения. Записи `TUNNEL_C_HOST=${IP_C}` и `$IP_C` не поддерживаются.
+Зависимые поля, например адрес jump-host и порт подключения A, вычисляются
+сборщиком из настроек туннеля. Файл экземпляра содержит, например:
+
+```dotenv
+IP_D=192.168.10.90
+PORT_D=7893
+DIR_D=/opt/mihomo
+ARCH_D=amd64
+SECRET_KEY_D=replace-with-a-unique-secret
+GEO_MODE=local
+TUNNEL_C_HOST=94.232.248.179
+TUNNEL_C_USER=root
+TUNNEL_C_PORT=22
+TUNNEL_REMOTE_PORT=2223
+TUNNEL_KEY=/root/.ssh/id_ed25519_tunnel
+```
+
+Для всех экземпляров на одном C значение `TUNNEL_REMOTE_PORT` должно быть
+уникальным. У каждого D должны быть собственные `IP_D` и `SECRET_KEY_D`.
+Ключи Reality/UUID и ключ обратного SSH-туннеля сборщик создаёт отдельно
+в `build/instances/`; не редактируйте и не коммитьте файлы ключей.
+
+Проверка обнаруживает совпадающие адреса D, конфликтующие порты туннелей на
+одном C, повторные каталоги/порты на одном D и повторное использование ключей
+или `SECRET_KEY_D`.
+
+Сборка, публикация и дальнейшее обновление экземпляра:
+
+```bash
+scripts/build-servers.sh D --instance D2 --check
+# Сначала добавить сгенерированные учётные записи D2 на B и C:
+scripts/build-servers.sh B --build --deploy
+scripts/build-servers.sh C --build --deploy
+# Затем собрать и опубликовать установщик D2:
+scripts/build-servers.sh D --instance D2 --build
+scripts/build-servers.sh D --instance D2 --publish
+# После bootstrap обновлять D2 через его reverse SSH-туннель:
+scripts/build-servers.sh D --instance D2 --deploy
+```
+
+Артефакты экземпляров разделены: конфиги и ключи лежат в `build/instances/`,
+готовый комплект для развертывания — в `build/D2/`. Для D2 ключевые файлы —
+`build/instances/D2.keys.env` и `build/instances/D2.tunnel.key`.
+Команда без `--instance` сохраняет прежнее поведение для `D`.
 
 ---
 

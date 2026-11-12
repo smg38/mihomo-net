@@ -3,8 +3,8 @@
 # check-keys-sync.sh — проверка и восстановление синхронизации ключей/UUID
 #                      и параметров между keys.env, params.env, build/* и
 #                      реальными серверами A/B/C/D (по SSH).
-# Версия: 3.2.0
-# Дата:   2026-11-05
+# Версия: 3.3.0
+# Дата:   2026-11-07
 # Автор:  @smg38
 #
 # Назначение:
@@ -115,6 +115,8 @@ SVC_D_TUNNEL="$PROJECT_ROOT/build/D/tunnel.service"
 for f in "$KEYS_ENV" "$PARAMS_ENV" "$CFG_B" "$CFG_C" "$CFG_D" "$SVC_D_TUNNEL"; do
     [[ -f "$f" ]] || { echo "Нет обязательного файла: $f" >&2; exit 2; }
 done
+validate_env_file_literal "$PARAMS_ENV" \
+    || { echo "Ошибка в $PARAMS_ENV: используйте только буквальные значения" >&2; exit 2; }
 
 # -----------------------------------------------------------------------------
 # Значение env-файла извлекается через общий dotenv-парсер из deploy/lib/env.sh.

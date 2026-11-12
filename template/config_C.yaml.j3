@@ -1,6 +1,6 @@
 # =============================================================================
 # template/config_C.yaml.j3 — шаблон конфигурации сервера C
-# Версия: 3.2.0   2026-11-5
+# Версия: 3.3.0   2026-11-07
 # Автор: @smg38
 # Сервер C: принимает внешних пользователей и релей B (UUID_BC),
 # релеит не-RU/CN трафик на B (UUID_BC).
@@ -46,9 +46,11 @@ listeners:
       - username: serverB
         flow: {{ FLOW_AB }}
         uuid: "{{ UUID_BC }}"
-      - username: serverD
+{% for d in D_TO_C_INSTANCES %}
+      - username: server{{ d }}
         flow: {{ FLOW_AB }}
-        uuid: "{{ UUID_DC }}"
+        uuid: "{{ UUID_DC_{{ d }} }}"
+{% endfor %}
 {% for u in USERS_C %}
       - username: {{ u }}
         flow: {{ FLOW_USERS }}

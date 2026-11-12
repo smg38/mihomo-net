@@ -4,13 +4,14 @@
 # иначе — через ProxyCommand C. Версии Mihomo, порты, REALITY auth, health-check,
 # TLS, ML-KEM, reverse-туннель.
 #
-# Версия: 3.2.0
-# Дата:   2026-11-05
+# Версия: 3.3.0
+# Дата:   2026-11-07
 # Автор:  @smg38
 #
 #   scripts/check-servers-runtime.sh            # авто: прямой D → fallback C
 #   scripts/check-servers-runtime.sh --no-d     # без D
 #   scripts/check-servers-runtime.sh --via-c    # принудительно через C
+#   scripts/check-servers-runtime.sh --instance D2 # проверить экземпляр D2
 # =============================================================================
 set -uo pipefail
 
@@ -25,14 +26,23 @@ C_BLUE=$'\033[0;34m'; C_CYAN=$'\033[0;36m'
 ERRORS=0; WARNINGS=0; OK_COUNT=0
 WITH_D=true
 FORCE_VIA_C=false
-for arg in "$@"; do
-    case "$arg" in
+INSTANCE_ID=D
+while [[ $# -gt 0 ]]; do
+    case "$1" in
         --no-d)    WITH_D=false ;;
         --via-c)   FORCE_VIA_C=true ;;
-        --help|-h) sed -n '2,12p' "$0" | sed 's/^# \?//'; exit 0 ;;
-        *) echo "Неизвестный аргумент: $arg" >&2; exit 2 ;;
+        --instance)
+            [[ $# -ge 2 ]] || { echo "--instance требует ID" >&2; exit 2; }
+            INSTANCE_ID="$2"
+            shift 2
+            continue
+            ;;
+        --help|-h) sed -n '2,13p' "$0" | sed 's/^# \?//'; exit 0 ;;
+        *) echo "Неизвестный аргумент: $1" >&2; exit 2 ;;
     esac
+    shift
 done
+[[ "$INSTANCE_ID" =~ ^[A-Za-z0-9][A-Za-z0-9_]*$ ]] || { echo "Недопустимый ID: $INSTANCE_ID" >&2; exit 2; }
 
 step() { printf '\n%s%s==>%s %s\n' "$C_BOLD" "$C_CYAN" "$C_RESET" "$1"; }
 info() { printf '%s  ·%s %s\n' "$C_BLUE" "$C_RESET" "$1"; }
@@ -52,7 +62,13 @@ for f in "$PARAMS_ENV" "$KEYS_ENV" "$ENV_LIB"; do
 done
 # shellcheck disable=SC1090
 source "$ENV_LIB"
-load_env_file "$PARAMS_ENV" || { echo "Не удалось загрузить $PARAMS_ENV" >&2; exit 2; }
+load_env_file_literal "$PARAMS_ENV" || { echo "Не удалось загрузить $PARAMS_ENV" >&2; exit 2; }
+if [[ "$INSTANCE_ID" != D ]]; then
+    INSTANCE_ENV="$PROJECT_ROOT/build/instances/$INSTANCE_ID.env"
+    [[ -f "$INSTANCE_ENV" ]] || { echo "Нет $INSTANCE_ENV" >&2; exit 2; }
+    validate_d_instance_file "$INSTANCE_ENV" || { echo "Ошибка в $INSTANCE_ENV" >&2; exit 2; }
+    load_env_file_literal "$INSTANCE_ENV" || { echo "Не удалось загрузить $INSTANCE_ENV" >&2; exit 2; }
+fi
 load_env_file "$KEYS_ENV"   || { echo "Не удалось загрузить $KEYS_ENV" >&2; exit 2; }
 
 : "${IP_B:?IP_B не задан}"
@@ -69,8 +85,13 @@ DIR_B="${DIR_B:-/opt/mihomo}"
 DIR_C="${DIR_C:-/opt/mihomo}"
 DIR_D="${DIR_D:-/opt/mihomo}"
 
-D_CONFIG="$PROJECT_ROOT/build/D/D-config"
-[[ -f "$D_CONFIG" ]] && load_env_file "$D_CONFIG" || true
+D_CONFIG="$PROJECT_ROOT/build/$INSTANCE_ID/D-config"
+if [[ -f "$D_CONFIG" ]]; then
+    load_env_file "$D_CONFIG" || { echo "Не удалось загрузить $D_CONFIG" >&2; exit 2; }
+elif [[ "$WITH_D" == true ]]; then
+    echo "Нет $D_CONFIG (сначала соберите экземпляр $INSTANCE_ID)" >&2
+    exit 2
+fi
 : "${TUNNEL_C_HOST:=$IP_C}"
 : "${TUNNEL_C_USER:=root}"
 : "${TUNNEL_C_PORT:=22}"

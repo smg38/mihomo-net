@@ -1,8 +1,8 @@
 #!/bin/bash
 # =============================================================================
 # scripts/diagnose.sh — полная диагностика конфигов A/B/C/D
-# Версия: 3.2.0
-# Дата:   2026-11-5
+# Версия: 3.3.0
+# Дата:   2026-11-07
 # Автор:  @smg38
 #
 # Запуск: scripts/diagnose.sh [--no-remote]
@@ -20,7 +20,7 @@ YAML_LIB="$SCRIPT_DIR/lib/yaml.sh"
 [[ -f "$YAML_LIB" ]] || { echo "Нет $YAML_LIB" >&2; exit 2; }
 # shellcheck disable=SC1090
 source "$YAML_LIB"
-ENV_LIB="$PROJECT_ROOT/.tmp/lib/env.sh"
+ENV_LIB="$PROJECT_ROOT/deploy/lib/env.sh"
 [[ -f "$ENV_LIB" ]] || { echo "Нет $ENV_LIB" >&2; exit 2; }
 # shellcheck disable=SC1090
 source "$ENV_LIB"
@@ -140,6 +140,7 @@ load_and_capture_env_file() {
 step "Загрузка keys.env и params.env"
 
 load_and_capture_env_file "$KEYS_ENV" keys || { fail "Нет или ошибка разбора $KEYS_ENV"; exit 1; }
+validate_env_file_literal "$PARAMS_ENV" || { fail "Нельзя загрузить $PARAMS_ENV: используйте буквальные значения"; exit 1; }
 load_and_capture_env_file "$PARAMS_ENV" params || { fail "Нет или ошибка разбора $PARAMS_ENV"; exit 1; }
 ok "keys.env: ${#ENV_KEYS[@]} переменных"
 ok "params.env: ${#ENV_PARAMS[@]} переменных"

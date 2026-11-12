@@ -1,8 +1,8 @@
 #!/bin/bash
 # =============================================================================
 # scripts/build-servers.sh — генерация конфигов и учёток для серверов A/B/C/D
-# Версия: 3.2.0
-# Дата:   2026-11-05
+# Версия: 3.3.0
+# Дата:   2026-11-07
 # Автор:  @smg38
 #
 # Назначение:
@@ -12,7 +12,7 @@
 #     - systemd unit mihomo.service для B/C/D из template/*.service.j3
 #     - nginx-конфиг для C из template/nginx-mihomo.conf.j3
 #     - tunnel.service для D из template/tunnel.service.j3
-#     - D-config для D (генерируется здесь из params.env, не из шаблона)
+#     - D-config для D из template/D-config.j3
 #     - D-install.run — самораспаковывающийся установщик D
 #     - ядро mihomo в build/kernel/mihomo-linux-<arch>-<version>
 #     - user*.yaml и user*.txt для клиентов
@@ -22,10 +22,11 @@
 #     --publish — только для D: публикация D-install.run в once/<sha256>.run на C
 #
 # Использование:
-#   scripts/build-servers.sh [all|A|B|C|D] [--build] [--deploy] [--publish] [--force] [--check] [--help]
+#   scripts/build-servers.sh [all|A|B|C|D] [--instance ID] [--build] [--deploy] [--publish] [--force] [--check] [--help]
 #
 #   all (по умолчанию)  — все серверы
 #   A | B | C | D       — только указанный сервер
+#   --instance ID       — экземпляр D из build/instances/ID.env (по умолчанию D)
 #   --build, -b         — только генерация артефактов
 #   --deploy, -d        — идемпотентная заливка артефактов по SSH
 #   --publish           — только для D: публикация D-install.run на C (once/<sha256>.run, TTL 8h)
@@ -39,8 +40,7 @@
 # Каталоги:
 #   build/keys/         — ключи, UUID, params.env (НЕ коммитить)
 #   build/kernel/       — кэш ядра mihomo (по ОС, архитектуре и версии)
-#   build/A|B|C|D/      — сгенерированные config.yaml, mihomo.service, nginx.conf,
-#                         tunnel.service, .env, D-config, D-install.run
+#   build/A|B|C|D|<ID>/ — сгенерированные конфиги и артефакты экземпляров
 #   build/users/        — user*.yaml, user*.txt
 #   build/web/          — base64 .txt для веб-выдачи на C
 #   .tmp/               — только runtime сервера A (build-local.sh)
@@ -48,7 +48,7 @@
 # Зависимости:
 #   bash, openssl, base64, scp, ssh, sha256sum (или shasum), curl, gzip, awk, tar
 #   scripts/templater.sh — шаблонизатор
-#   deploy/lib/env.sh    — load_env_file (разделяемый парсер)
+#   deploy/lib/env.sh    — literal env-file validation and parser
 # =============================================================================
 
 set -euo pipefail
@@ -90,6 +90,8 @@ KEYS_DIR="$BUILD_DIR/keys"
 KERNEL_DIR="$BUILD_DIR/kernel"
 PARAMS_ENV="$KEYS_DIR/params.env"
 KEYS_ENV="$KEYS_DIR/keys.env"
+GLOBAL_KEYS_ENV="$KEYS_ENV"
+INSTANCE_DIR="$BUILD_DIR/instances"
 TMP_DIR="$PROJECT_ROOT/.tmp"
 MIHOMO_BIN="${MIHOMO_BIN:-$TMP_DIR/mihomo}"
 TEMPLATER="$PROJECT_ROOT/scripts/templater.sh"
@@ -104,6 +106,7 @@ REMOTE_USER="${REMOTE_USER:-root}"
 # Разбор аргументов
 # ------------------------------------------------------------------------------
 TARGET="all"
+INSTANCE_ID="D"
 DO_BUILD=false
 DO_DEPLOY=false
 DO_PUBLISH=false
@@ -121,11 +124,25 @@ while [[ $# -gt 0 ]]; do
         --deploy|-d)  DO_DEPLOY=true; EXPLICIT_MODE=true; shift ;;
         --publish)    DO_PUBLISH=true; EXPLICIT_MODE=true; shift ;;
         --check|-c)   DO_CHECK=true; EXPLICIT_MODE=true; shift ;;
+        --instance)   [[ $# -ge 2 ]] || fail "--instance требует ID"; INSTANCE_ID="$2"; shift 2 ;;
         --force|-f)   FORCE=true; shift ;;
         all|A|B|C|D)  TARGET="$1"; shift ;;
         *) fail "Неизвестный аргумент: $1 (см. --help)" ;;
     esac
 done
+
+[[ "$INSTANCE_ID" =~ ^[A-Za-z0-9][A-Za-z0-9_]*$ ]] \
+    || fail "Недопустимый ID экземпляра D: $INSTANCE_ID"
+if [[ "$INSTANCE_ID" != "D" && "$TARGET" != "D" ]]; then
+    fail "--instance можно использовать только с TARGET=D"
+fi
+if [[ "$INSTANCE_ID" != "D" ]]; then
+    [[ -f "$INSTANCE_DIR/$INSTANCE_ID.env" ]] \
+        || fail "Нет файла экземпляра: $INSTANCE_DIR/$INSTANCE_ID.env"
+    KEYS_ENV="$INSTANCE_DIR/$INSTANCE_ID.keys.env"
+    KEYS_ENV_BAK="$INSTANCE_DIR/$INSTANCE_ID.keys.${DT}.env.bak"
+fi
+D_BUILD_DIR="$BUILD_DIR/$INSTANCE_ID"
 
 # По умолчанию — только сборка (совместимость)
 if [[ "$EXPLICIT_MODE" == false ]]; then
@@ -169,10 +186,65 @@ load_env() {
     load_env_file "$1"
 }
 
+load_params() {
+    # shellcheck disable=SC1090
+    source "$ENV_LIB"
+    load_env_file_literal "$PARAMS_ENV" || return $?
+    if [[ ! -v D_TO_B_INSTANCES && ! -v D_TO_C_INSTANCES ]]; then
+        D_TO_B_INSTANCES=D
+        D_TO_C_INSTANCES=D
+    else
+        : "${D_TO_B_INSTANCES=}"
+        : "${D_TO_C_INSTANCES=}"
+    fi
+    export D_TO_B_INSTANCES D_TO_C_INSTANCES
+}
+
+load_instance_params() {
+    load_params || return 1
+    if [[ "$INSTANCE_ID" != "D" ]]; then
+        validate_d_instance_file "$INSTANCE_DIR/$INSTANCE_ID.env" || return 1
+        load_env_file_literal "$INSTANCE_DIR/$INSTANCE_ID.env" || return 1
+    fi
+    : "${ARCH_D:=amd64}"
+    : "${GEO_MODE:=local}"
+    : "${DNS_PORT:=1053}"
+    : "${TUNNEL_C_HOST:=${IP_C-}}"
+    : "${TUNNEL_C_USER:=root}"
+    : "${TUNNEL_C_PORT:=22}"
+    : "${TUNNEL_REMOTE_PORT:=2222}"
+    : "${TUNNEL_KEY:=/root/.ssh/id_ed25519_tunnel}"
+    JUMP_D_HOST="$TUNNEL_C_HOST"
+    JUMP_D_USER="$TUNNEL_C_USER"
+    JUMP_D_SSH_PORT="$TUNNEL_C_PORT"
+    REMOTE_PORT_D="$TUNNEL_REMOTE_PORT"
+    : "${CN_CIDR_URL:=https://cdn.jsdelivr.net/gh/gaoyifan/china-operator-ip@ip-lists/china.txt}"
+    : "${RU_CIDR_URL:=https://raw.githubusercontent.com/ipverse/rir-ip/master/country/ru/ipv4-aggregated.txt}"
+    : "${GEOSITE_URL:=https://github.com/hydraponique/roscomvpn-geosite/releases/latest/download/geosite.dat}"
+    : "${GEOIP_METADB_URL:=https://fastly.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.metadb}"
+    D_TO_B_ENABLED=false
+    D_TO_C_ENABLED=false
+    local -a d_to_b_ids=() d_to_c_ids=()
+    local id
+    read -r -a d_to_b_ids <<< "$D_TO_B_INSTANCES"
+    read -r -a d_to_c_ids <<< "$D_TO_C_INSTANCES"
+    for id in "${d_to_b_ids[@]}"; do
+        [[ "$id" == "$INSTANCE_ID" ]] && D_TO_B_ENABLED=true
+    done
+    for id in "${d_to_c_ids[@]}"; do
+        [[ "$id" == "$INSTANCE_ID" ]] && D_TO_C_ENABLED=true
+    done
+    export D_TO_B_ENABLED D_TO_C_ENABLED
+    export ARCH_D GEO_MODE DNS_PORT TUNNEL_C_HOST TUNNEL_C_USER TUNNEL_C_PORT TUNNEL_REMOTE_PORT
+    export TUNNEL_KEY JUMP_D_HOST JUMP_D_USER JUMP_D_SSH_PORT REMOTE_PORT_D
+    export CN_CIDR_URL RU_CIDR_URL GEOSITE_URL GEOIP_METADB_URL
+}
+
 ensure_dirs() {
     mkdir -p "$KEYS_DIR"
     mkdir -p "$KERNEL_DIR"
     mkdir -p "$BUILD_DIR"/{A,B,C,D}/back
+    mkdir -p "$D_BUILD_DIR/back" "$INSTANCE_DIR"
     mkdir -p "$BUILD_DIR"/users
     mkdir -p "$BUILD_DIR"/web
 }
@@ -235,7 +307,7 @@ _v_check_port() {
     if [[ -z "$value" ]]; then
         warn "$name не задана"; _v_errors=$((_v_errors+1)); return
     fi
-    if ! [[ "$value" =~ ^[0-9]+$ ]] || (( value < 1 || value > 65535 )); then
+    if ! [[ "$value" =~ ^[0-9]+$ ]] || (( 10#$value < 1 || 10#$value > 65535 )); then
         warn "$name = '$value' — не порт (1-65535)"; _v_errors=$((_v_errors+1)); return
     fi
     ok "$name = $value"
@@ -352,6 +424,180 @@ _v_check_unique_array() {
     else
         _v_errors=$((_v_errors+1))
     fi
+}
+
+validate_d_instance_collisions() {
+    local setting_vars=(D_TO_B_INSTANCES D_TO_C_INSTANCES D_TO_B_ENABLED D_TO_C_ENABLED
+        IP_A IP_B IP_C IP_D PORT_D DNS_PORT DIR_D ARCH_D GEO_MODE SECRET_KEY_D
+        TUNNEL_C_HOST TUNNEL_C_USER TUNNEL_C_PORT TUNNEL_REMOTE_PORT TUNNEL_KEY
+        JUMP_D_HOST JUMP_D_USER JUMP_D_SSH_PORT REMOTE_PORT_D FWMARK ROUTE_TABLE NFT_TABLE
+        CN_CIDR_URL RU_CIDR_URL GEOSITE_URL GEOIP_METADB_URL)
+    local -A saved_set=() saved_value=()
+    local var
+    for var in "${setting_vars[@]}"; do
+        if [[ -v "$var" ]]; then
+            saved_set["$var"]=1
+            saved_value["$var"]="${!var}"
+        else
+            saved_set["$var"]=0
+        fi
+    done
+
+    local -a ids=()
+    local -A instance_ip=() instance_dir=() instance_port=() tunnel_host=()
+    local -A tunnel_port=() tunnel_key=() instance_secret=()
+    local errors=0 id file remote_port arch
+    while IFS= read -r id; do
+        for var in "${setting_vars[@]}"; do unset "$var"; done
+        load_params || { errors=$((errors+1)); continue; }
+        if [[ "$id" != D ]]; then
+            file="$INSTANCE_DIR/$id.env"
+            validate_d_instance_file "$file" || { errors=$((errors+1)); continue; }
+            load_env_file_literal "$file" || { errors=$((errors+1)); continue; }
+        fi
+
+        ids+=("$id")
+        instance_ip["$id"]="${IP_D-}"
+        instance_dir["$id"]="${DIR_D-}"
+        instance_port["$id"]="${PORT_D-}"
+        tunnel_host["$id"]="${TUNNEL_C_HOST:-${IP_C-}}"
+        tunnel_port["$id"]="${TUNNEL_REMOTE_PORT:-2222}"
+        tunnel_key["$id"]="${TUNNEL_KEY:-/root/.ssh/id_ed25519_tunnel}"
+        instance_secret["$id"]="${SECRET_KEY_D-}"
+        _v_is_ipv4 "${IP_D-}" || { printf '✗ %s: IP_D не задан или не IPv4\n' "$id" >&2; errors=$((errors+1)); }
+        _v_is_ipv4 "${TUNNEL_C_HOST:-${IP_C-}}" \
+            || { printf '✗ %s: TUNNEL_C_HOST не задан или не IPv4\n' "$id" >&2; errors=$((errors+1)); }
+        if ! [[ "${PORT_D-}" =~ ^[0-9]+$ ]] \
+            || (( 10#${PORT_D} < 1 || 10#${PORT_D} > 65535 )); then
+            printf '✗ %s: PORT_D не является портом 1-65535\n' "$id" >&2
+            errors=$((errors+1))
+        fi
+        if [[ "${DIR_D-}" != /* || "${DIR_D-}" == / || "${DIR_D-}" == /opt || "${DIR_D-}" == /root || "${DIR_D-}" == /etc ]]; then
+            printf '✗ %s: DIR_D должен быть абсолютным каталогом приложения\n' "$id" >&2
+            errors=$((errors+1))
+        fi
+        if [[ -z "${SECRET_KEY_D-}" ]]; then
+            printf '✗ %s: SECRET_KEY_D не задан\n' "$id" >&2
+            errors=$((errors+1))
+        fi
+        remote_port="${tunnel_port[$id]}"
+        if ! [[ "$remote_port" =~ ^[0-9]+$ ]] \
+            || (( 10#${remote_port} < 1024 || 10#${remote_port} > 65535 )); then
+            printf '✗ %s: TUNNEL_REMOTE_PORT должен быть в диапазоне 1024-65535\n' "$id" >&2
+            errors=$((errors+1))
+        fi
+        arch="${ARCH_D:-amd64}"
+        case "$arch" in amd64|arm64|armv7|armv6|386) ;; *)
+            printf '✗ %s: недопустимый ARCH_D (%s)\n' "$id" "$arch" >&2
+            errors=$((errors+1))
+            ;;
+        esac
+        case "${GEO_MODE:-local}" in local|remote) ;; *)
+            printf '✗ %s: GEO_MODE должен быть local или remote\n' "$id" >&2
+            errors=$((errors+1))
+            ;;
+        esac
+    done < <(configured_d_instance_ids)
+
+    local i j first second key_file key_name key_value category prior
+    local -A seen_key=()
+    for ((i=0; i<${#ids[@]}; i++)); do
+        first="${ids[i]}"
+        for ((j=i+1; j<${#ids[@]}; j++)); do
+            second="${ids[j]}"
+            if [[ -n "${instance_ip[$first]}" && "${instance_ip[$first]}" == "${instance_ip[$second]}" ]]; then
+                printf '✗ %s и %s: совпадает IP_D (%s)\n' "$first" "$second" "${instance_ip[$first]}" >&2
+                errors=$((errors+1))
+            fi
+            if [[ -n "${tunnel_host[$first]}" && "${tunnel_host[$first],,}" == "${tunnel_host[$second],,}" \
+                && "${tunnel_port[$first]}" == "${tunnel_port[$second]}" ]]; then
+                printf '✗ %s и %s: конфликт reverse-туннеля на %s:%s\n' \
+                    "$first" "$second" "${tunnel_host[$first]}" "${tunnel_port[$first]}" >&2
+                errors=$((errors+1))
+            fi
+            if [[ -n "${instance_ip[$first]}" && "${instance_ip[$first]}" == "${instance_ip[$second]}" ]]; then
+                if [[ "${instance_dir[$first]}" == "${instance_dir[$second]}" ]]; then
+                    printf '✗ %s и %s: совпадает DIR_D на одном сервере (%s)\n' \
+                        "$first" "$second" "${instance_dir[$first]}" >&2
+                    errors=$((errors+1))
+                fi
+                if [[ "${instance_port[$first]}" == "${instance_port[$second]}" ]]; then
+                    printf '✗ %s и %s: совпадает PORT_D на одном сервере (%s)\n' \
+                        "$first" "$second" "${instance_port[$first]}" >&2
+                    errors=$((errors+1))
+                fi
+                if [[ "${tunnel_key[$first]}" == "${tunnel_key[$second]}" ]]; then
+                    printf '✗ %s и %s: совпадает путь TUNNEL_KEY на одном сервере (%s)\n' \
+                        "$first" "$second" "${tunnel_key[$first]}" >&2
+                    errors=$((errors+1))
+                fi
+            fi
+            if [[ -n "${instance_secret[$first]}" && "${instance_secret[$first]}" == "${instance_secret[$second]}" ]]; then
+                printf '✗ %s и %s: повторяется SECRET_KEY_D; задайте отдельные секреты\n' "$first" "$second" >&2
+                errors=$((errors+1))
+            fi
+        done
+
+        if [[ "$first" == D ]]; then
+            key_file="$GLOBAL_KEYS_ENV"
+        else
+            key_file="$INSTANCE_DIR/$first.keys.env"
+        fi
+        if [[ ! -f "$key_file" ]]; then
+            info "$first: ключи экземпляра будут созданы при сборке"
+            continue
+        fi
+        while IFS='=' read -r key_name key_value; do
+            key_name="${key_name%$'\r'}"
+            case "$key_name" in
+                UUID_D|UUID_DC|UUID_DB)
+                    category=UUID
+                    [[ "$key_value" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]] \
+                        || { printf '✗ %s: неверный формат %s\n' "$first" "$key_name" >&2; errors=$((errors+1)); }
+                    ;;
+                PRIVATE_KEY_D|PRIVATE_KEY_DC|PRIVATE_KEY_DB)
+                    category=PRIVATE_KEY
+                    [[ "$key_value" =~ ^[A-Za-z0-9_-]{43}$ ]] \
+                        || { printf '✗ %s: неверный формат %s\n' "$first" "$key_name" >&2; errors=$((errors+1)); }
+                    ;;
+                PUBLIC_KEY_D|PUBLIC_KEY_DC|PUBLIC_KEY_DB)
+                    category=PUBLIC_KEY
+                    [[ "$key_value" =~ ^[A-Za-z0-9_-]{43}$ ]] \
+                        || { printf '✗ %s: неверный формат %s\n' "$first" "$key_name" >&2; errors=$((errors+1)); }
+                    ;;
+                SHORT_ID_D|SHORT_ID_DC|SHORT_ID_DB)
+                    category=SHORT_ID
+                    [[ "$key_value" =~ ^[0-9a-fA-F]{1,16}$ ]] \
+                        || { printf '✗ %s: неверный формат %s\n' "$first" "$key_name" >&2; errors=$((errors+1)); }
+                    ;;
+                *) continue ;;
+            esac
+            [[ -n "$key_value" ]] || continue
+            key="$category:$key_value"
+            prior="${seen_key[$key]-}"
+            if [[ -n "$prior" ]]; then
+                printf '✗ повторяется %s между экземплярами %s и %s\n' "$category" "$prior" "$first" >&2
+                errors=$((errors+1))
+            else
+                seen_key["$key"]="$first"
+            fi
+        done < "$key_file"
+    done
+
+    for var in "${setting_vars[@]}"; do
+        if [[ "${saved_set[$var]}" == 1 ]]; then
+            printf -v "$var" '%s' "${saved_value[$var]}"
+            export "$var"
+        else
+            unset "$var"
+        fi
+    done
+
+    if (( errors > 0 )); then
+        printf '✗ Проверка экземпляров D: %d конфликт(ов)\n' "$errors" >&2
+        return 1
+    fi
+    ok "Экземпляры D: конфигурации, порты и ключи не конфликтуют"
 }
 
 # --- главная функция ---
@@ -625,7 +871,7 @@ validate_connectivity() {
     fi
     [[ "$need_b" == true ]] && _v_ssh_check "B" "${REMOTE_USER}@${IP_B-}" false
     [[ "$need_c" == true ]] && _v_ssh_check "C" "${REMOTE_USER}@${IP_C-}" true
-    [[ "$need_d" == true ]] && _v_ssh_check "C (для D)" "${REMOTE_USER}@${IP_C-}" false
+    [[ "$need_d" == true ]] && _v_ssh_check "C (для $INSTANCE_ID)" "${REMOTE_USER}@${TUNNEL_C_HOST:-${IP_C-}}" false
 
     # D за NAT: проверяем, что туннель D->C уже поднят (bootstrap впереди — warn, не fail)
     if [[ "$need_d" == true ]]; then
@@ -636,7 +882,7 @@ validate_connectivity() {
              "ss -tln 2>/dev/null | grep -q '127.0.0.1:${tunnel_port} '" 2>/dev/null; then
             ok "C: 127.0.0.1:${tunnel_port} слушает (туннель D->C поднят)"
         else
-            warn "C: 127.0.0.1:${tunnel_port} НЕ слушает — туннель ещё не поднят (bootstrap впереди)"
+            warn "$tunnel_host: 127.0.0.1:${tunnel_port} НЕ слушает — туннель ещё не поднят (bootstrap впереди)"
         fi
     fi
 
@@ -658,7 +904,7 @@ show_plan() {
             A)   info "--build A:    render config_A + build_users (A)" ;;
             B)   info "--build B:    fetch_kernel + render config_B + mihomo.service" ;;
             C)   info "--build C:    fetch_kernel + render config_C + mihomo.service + nginx.conf" ;;
-            D)   info "--build D:    fetch_kernel + GeoSite/geoip/CIDR + render config_D + mihomo.service + tunnel.service + .env + D-config + D-install.run" ;;
+            D)   info "--build $INSTANCE_ID: fetch_kernel + GeoSite/geoip/CIDR + render config_D + units + D-config + installer" ;;
         esac
     else
         info "--build:      пропущен"
@@ -705,7 +951,94 @@ ensure_key() {
     local block
     block=$(make_keys "$name")
     printf '%s\n' "$block" >> "$KEYS_ENV"
+    chmod 0600 "$KEYS_ENV"
     ok "Сгенерированы ключи для ${name}"
+}
+
+configured_d_instance_ids() {
+    local file id
+    printf '%s\n' D
+    for file in "$INSTANCE_DIR"/*.env; do
+        [[ -f "$file" ]] || continue
+        id="${file##*/}"
+        [[ "$id" == *.keys.env ]] && continue
+        id="${id%.env}"
+        [[ "$id" == D ]] && continue
+        printf '%s\n' "$id"
+    done
+}
+
+validate_d_connection_lists() {
+    local id
+    local list_name list entry file errors=0
+    local -A instance_ids=() connected_ids=()
+    local -a list_values=()
+
+    while IFS= read -r id; do
+        if ! [[ "$id" =~ ^[A-Za-z0-9][A-Za-z0-9_]*$ ]]; then
+            fail "Недопустимый ID экземпляра D в имени файла: $id"
+            errors=$((errors+1))
+            continue
+        fi
+        instance_ids["$id"]=1
+    done < <(configured_d_instance_ids)
+
+    for list_name in D_TO_B_INSTANCES D_TO_C_INSTANCES; do
+        list="${!list_name-}"
+        read -r -a list_values <<< "$list"
+        local -A seen=()
+        for entry in "${list_values[@]}"; do
+            if ! [[ "$entry" =~ ^[A-Za-z0-9][A-Za-z0-9_]*$ ]]; then
+                fail "Недопустимый ID '$entry' в $list_name"
+                errors=$((errors+1))
+            elif [[ ! -v "instance_ids[$entry]" ]]; then
+                fail "$list_name содержит $entry, но $INSTANCE_DIR/$entry.env не настроен"
+                errors=$((errors+1))
+            elif [[ -v "seen[$entry]" ]]; then
+                fail "$entry указан в $list_name несколько раз"
+                errors=$((errors+1))
+            else
+                seen["$entry"]=1
+                connected_ids["$entry"]=1
+            fi
+        done
+    done
+    for id in "${!instance_ids[@]}"; do
+        if [[ ! -v "connected_ids[$id]" ]]; then
+            fail "$id не включён ни в D_TO_B_INSTANCES, ни в D_TO_C_INSTANCES"
+            errors=$((errors+1))
+        fi
+    done
+    (( errors == 0 ))
+}
+
+load_d_connection_keys() {
+    local target="$1"
+    local saved_keys_env="$KEYS_ENV" id key_file key_suffix uuid_name list_name
+    case "$target" in
+        B) key_suffix=DB; uuid_name=UUID_DB; list_name=D_TO_B_INSTANCES ;;
+        C) key_suffix=DC; uuid_name=UUID_DC; list_name=D_TO_C_INSTANCES ;;
+        *) fail "Неверная цель для ключей D: $target"; return 1 ;;
+    esac
+
+    local -a ids=()
+    read -r -a ids <<< "${!list_name}"
+    for id in "${ids[@]}"; do
+        if [[ "$id" == D ]]; then
+            key_file="$GLOBAL_KEYS_ENV"
+        else
+            key_file="$INSTANCE_DIR/$id.keys.env"
+        fi
+
+        KEYS_ENV="$key_file"
+        ensure_key "$key_suffix"
+        load_env "$key_file"
+        printf -v "${uuid_name}_$id" '%s' "${!uuid_name}"
+        export "${uuid_name}_$id"
+    done
+
+    KEYS_ENV="$saved_keys_env"
+    load_env "$GLOBAL_KEYS_ENV"
 }
 
 backup_keys_once() {
@@ -951,8 +1284,8 @@ build_B() {
     ensure_key B
     ensure_key BA
     ensure_key BC
-    ensure_key DB
     load_env "$KEYS_ENV"
+    load_d_connection_keys B
 
     local arch="${ARCH_B:-amd64}"
     fetch_kernel "$arch"
@@ -979,11 +1312,11 @@ build_C() {
     step "Сервер C — config.yaml + mihomo.service + nginx.conf"
     ensure_key C
     ensure_key BC
-    ensure_key DC
     for u in ${USERS_C:-}; do
         ensure_key "C_${u}"
     done
     load_env "$KEYS_ENV"
+    load_d_connection_keys C
 
     local arch="${ARCH_C:-amd64}"
     fetch_kernel "$arch"
@@ -1018,14 +1351,14 @@ ensure_geodata_d() {
 
     # GeoSite.dat — обязателен, с category-ru (RoscomVPN)
     if [[ -f "$BUILD_DIR/C/GeoSite.dat" ]]; then
-        cp "$BUILD_DIR/C/GeoSite.dat" "$BUILD_DIR/D/GeoSite.dat"
+        cp "$BUILD_DIR/C/GeoSite.dat" "$D_BUILD_DIR/GeoSite.dat"
         ok "GeoSite.dat <- build/C/GeoSite.dat"
-    elif [[ -f "$BUILD_DIR/D/GeoSite.dat" ]]; then
-        ok "GeoSite.dat <- build/D/GeoSite.dat (кэш)"
+    elif [[ -f "$D_BUILD_DIR/GeoSite.dat" ]]; then
+        ok "GeoSite.dat <- $D_BUILD_DIR/GeoSite.dat (кэш)"
     else
         info "Скачивание GeoSite.dat (RoscomVPN)…"
         kv "URL" "${GEOSITE_URL:-https://github.com/hydraponique/roscomvpn-geosite/releases/latest/download/geosite.dat}"
-        curl -fL --progress-bar -o "$BUILD_DIR/D/GeoSite.dat" \
+        curl -fL --progress-bar -o "$D_BUILD_DIR/GeoSite.dat" \
             "${GEOSITE_URL:-https://github.com/hydraponique/roscomvpn-geosite/releases/latest/download/geosite.dat}" \
             || fail "Не удалось скачать GeoSite.dat (обязателен, category-ru)"
         ok "GeoSite.dat скачан"
@@ -1033,13 +1366,13 @@ ensure_geodata_d() {
 
     # geoip.metadb — опционально
     if [[ -f "$BUILD_DIR/C/geoip.metadb" ]]; then
-        cp "$BUILD_DIR/C/geoip.metadb" "$BUILD_DIR/D/geoip.metadb"
+        cp "$BUILD_DIR/C/geoip.metadb" "$D_BUILD_DIR/geoip.metadb"
         ok "geoip.metadb <- build/C/geoip.metadb"
-    elif [[ -f "$BUILD_DIR/D/geoip.metadb" ]]; then
-        ok "geoip.metadb <- build/D/geoip.metadb (кэш)"
+    elif [[ -f "$D_BUILD_DIR/geoip.metadb" ]]; then
+        ok "geoip.metadb <- $D_BUILD_DIR/geoip.metadb (кэш)"
     else
         info "Скачивание geoip.metadb…"
-        curl -fL --progress-bar -o "$BUILD_DIR/D/geoip.metadb" \
+        curl -fL --progress-bar -o "$D_BUILD_DIR/geoip.metadb" \
             "${GEOIP_METADB_URL:-https://fastly.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.metadb}" \
             || warn "Не удалось скачать geoip.metadb (GEOIP,RU использует mmdb по умолчанию)"
     fi
@@ -1047,12 +1380,12 @@ ensure_geodata_d() {
     # cn/ru CIDR — по возможности, иначе D скачает сам
     for f in cn_cidr.txt ru_cidr.txt; do
         if [[ -f "$BUILD_DIR/C/$f" ]]; then
-            cp "$BUILD_DIR/C/$f" "$BUILD_DIR/D/$f"
+            cp "$BUILD_DIR/C/$f" "$D_BUILD_DIR/$f"
             ok "$f <- build/C/$f"
-        elif [[ -f "$BUILD_DIR/D/$f" ]]; then
-            ok "$f <- build/D/$f (кэш)"
+        elif [[ -f "$D_BUILD_DIR/$f" ]]; then
+            ok "$f <- $D_BUILD_DIR/$f (кэш)"
         else
-            warn "Нет build/C/$f и build/D/$f — D скачает сам при install"
+            warn "Нет build/C/$f и $D_BUILD_DIR/$f — D скачает сам при install"
         fi
     done
 }
@@ -1061,55 +1394,8 @@ ensure_geodata_d() {
 # Генерация D-config (плоский dotenv, без шаблона)
 # ------------------------------------------------------------------------------
 write_D_config() {
-    local out="$BUILD_DIR/D/D-config"
-    [[ -f "$out" ]] && cp "$out" "$(dirname "$out")/back/$(basename "$out").${DT}.bak"
-    cat > "$out" <<EOF
-# Сгенерировано build-servers.sh $DT. Не редактировать вручную.
-
-# --- Сеть и runtime ---
-IP_D=${IP_D}
-PORT_D=${PORT_D}
-DIR_D=${DIR_D}
-ARCH_D=${ARCH_D}
-
-# --- Mihomo ---
-SECRET_KEY_D=${SECRET_KEY_D}
-FLOW_D=${FLOW_AB}
-FINGERPRINT_D=${FINGERPRINT}
-SERVERNAME_D=${SERVERNAME}
-GEO_MODE=${GEO_MODE:-local}
-
-# --- Апстримы (D -> C primary, D -> B fallback) ---
-IP_C=${IP_C}
-PORT_C=${PORT_C}
-IP_B=${IP_B}
-PORT_B=${PORT_B}
-UUID_DC=${UUID_DC}
-UUID_DB=${UUID_DB}
-PUBLIC_KEY_C=${PUBLIC_KEY_C}
-SHORT_ID_C=${SHORT_ID_C}
-PUBLIC_KEY_B=${PUBLIC_KEY_B}
-SHORT_ID_B=${SHORT_ID_B}
-
-# --- Reverse SSH tunnel D -> C ---
-TUNNEL_C_HOST=${TUNNEL_C_HOST:-$IP_C}
-TUNNEL_C_USER=${TUNNEL_C_USER:-root}
-TUNNEL_C_PORT=${TUNNEL_C_PORT:-22}
-TUNNEL_REMOTE_PORT=${TUNNEL_REMOTE_PORT:-2222}
-TUNNEL_KEY=${TUNNEL_KEY:-/root/.ssh/id_ed25519_tunnel}
-
-# --- Как A подключается к D (deploy_D) ---
-JUMP_D_HOST=${JUMP_D_HOST:-$IP_C}
-JUMP_D_USER=${JUMP_D_USER:-root}
-JUMP_D_SSH_PORT=${JUMP_D_SSH_PORT:-22}
-REMOTE_PORT_D=${TUNNEL_REMOTE_PORT:-2222}
-
-# --- CIDR / geodata ---
-CN_CIDR_URL=${CN_CIDR_URL:-https://cdn.jsdelivr.net/gh/gaoyifan/china-operator-ip@ip-lists/china.txt}
-RU_CIDR_URL=${RU_CIDR_URL:-https://raw.githubusercontent.com/ipverse/rir-ip/master/country/ru/ipv4-aggregated.txt}
-GEOSITE_URL=${GEOSITE_URL:-https://github.com/hydraponique/roscomvpn-geosite/releases/latest/download/geosite.dat}
-GEOIP_METADB_URL=${GEOIP_METADB_URL:-https://fastly.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.metadb}
-EOF
+    local out="$D_BUILD_DIR/D-config"
+    render_plain "$PROJECT_ROOT/template/D-config.j3" "$out" "$PARAMS_ENV"
     chmod 0600 "$out"
     ok "$out"
 }
@@ -1126,21 +1412,21 @@ make_D_installer() (
     trap 'rm -rf "$stage"' EXIT
 
     mkdir -p "$stage/D-install/lib"
-    cp "$BUILD_DIR/D/config.yaml"             "$stage/D-install/"
-    cp "$BUILD_DIR/D/mihomo.service"          "$stage/D-install/"
-    cp "$BUILD_DIR/D/tunnel.service"          "$stage/D-install/"
-    cp "$BUILD_DIR/D/D-config"                "$stage/D-install/"
-    cp "$BUILD_DIR/D/.env"                    "$stage/D-install/env.sh"
+    cp "$D_BUILD_DIR/config.yaml"             "$stage/D-install/"
+    cp "$D_BUILD_DIR/mihomo.service"          "$stage/D-install/"
+    cp "$D_BUILD_DIR/tunnel.service"          "$stage/D-install/"
+    cp "$D_BUILD_DIR/D-config"                "$stage/D-install/"
+    cp "$D_BUILD_DIR/.env"                    "$stage/D-install/env.sh"
     cp "$(kernel_path "$arch")"               "$stage/D-install/mihomo"
     cp "$PROJECT_ROOT/deploy/scripts/entrypoint.sh" "$stage/D-install/entrypoint.sh"
     cp "$PROJECT_ROOT/deploy/lib/env.sh"      "$stage/D-install/lib/env.sh"
     cp "$PROJECT_ROOT/deploy/lib/http.sh"     "$stage/D-install/lib/http.sh"
     cp "$PROJECT_ROOT/scripts/D-install-inner.sh" "$stage/D-install/install.sh"
     cp "$PROJECT_ROOT/scripts/D-test.sh"          "$stage/D-install/D-test.sh"
-    cp "$BUILD_DIR/D/GeoSite.dat"             "$stage/D-install/geosite.dat"
-    [[ -f "$BUILD_DIR/D/geoip.metadb" ]]   && cp "$BUILD_DIR/D/geoip.metadb"  "$stage/D-install/"
-    [[ -f "$BUILD_DIR/D/cn_cidr.txt" ]]    && cp "$BUILD_DIR/D/cn_cidr.txt"   "$stage/D-install/"
-    [[ -f "$BUILD_DIR/D/ru_cidr.txt" ]]    && cp "$BUILD_DIR/D/ru_cidr.txt"   "$stage/D-install/"
+    cp "$D_BUILD_DIR/GeoSite.dat"             "$stage/D-install/geosite.dat"
+    [[ -f "$D_BUILD_DIR/geoip.metadb" ]]   && cp "$D_BUILD_DIR/geoip.metadb"  "$stage/D-install/"
+    [[ -f "$D_BUILD_DIR/cn_cidr.txt" ]]    && cp "$D_BUILD_DIR/cn_cidr.txt"   "$stage/D-install/"
+    [[ -f "$D_BUILD_DIR/ru_cidr.txt" ]]    && cp "$D_BUILD_DIR/ru_cidr.txt"   "$stage/D-install/"
 
     [[ -f "${TUNNEL_KEY_LOCAL}" && -f "${TUNNEL_KEY_LOCAL}.pub" ]] \
         || fail "Нет ключа D->C: ${TUNNEL_KEY_LOCAL}"
@@ -1161,7 +1447,9 @@ make_D_installer() (
     
     chmod +x "$stage/D-install/install.sh" "$stage/D-install/entrypoint.sh" "$stage/D-install/mihomo"
 
-    local out="$BUILD_DIR/D/D-install.run"
+    local installer_name="D-install.run"
+    [[ "$INSTANCE_ID" != "D" ]] && installer_name="${INSTANCE_ID}-install.run"
+    local out="$D_BUILD_DIR/$installer_name"
     local new_payload
     new_payload=$(mktemp)
     cat > "$new_payload" <<'HEADER'
@@ -1192,7 +1480,8 @@ HEADER
 # ------------------------------------------------------------------------------
 ensure_tunnel_key_d() {
     step "Ключ D->C (tunnel)"
-    local key="${TUNNEL_KEY_LOCAL:-$KEYS_DIR/id_ed25519_tunnel}"
+    local key="$KEYS_DIR/id_ed25519_tunnel"
+    [[ "$INSTANCE_ID" == "D" ]] || key="$INSTANCE_DIR/$INSTANCE_ID.tunnel.key"
     mkdir -p "$KEYS_DIR"
     chmod 700 "$KEYS_DIR"
 
@@ -1208,10 +1497,10 @@ ensure_tunnel_key_d() {
     kv "PUB" "$(cut -c1-40 "${key}.pub")..."
 
     # Публичная часть встраивается в архив как отдельный файл (для справки), приватная остаётся здесь.
-    cp "$key"     "$BUILD_DIR/D/D-tunnel.key"
-    cp "${key}.pub" "$BUILD_DIR/D/D-tunnel.key.pub"
-    chmod 600 "$BUILD_DIR/D/D-tunnel.key"
-    chmod 644 "$BUILD_DIR/D/D-tunnel.key.pub"
+    cp "$key"     "$D_BUILD_DIR/D-tunnel.key"
+    cp "${key}.pub" "$D_BUILD_DIR/D-tunnel.key.pub"
+    chmod 600 "$D_BUILD_DIR/D-tunnel.key"
+    chmod 644 "$D_BUILD_DIR/D-tunnel.key.pub"
 }
 
 # ------------------------------------------------------------------------------
@@ -1226,7 +1515,7 @@ authorize_tunnel_key_on_c() {
     restricted="restrict,port-forwarding,permitlisten=\"127.0.0.1:${remote_port}\" ${pub}"
 
     local target
-    target=$(ssh_target "$IP_C")
+    target=$(ssh_target "${TUNNEL_C_USER:-root}@${TUNNEL_C_HOST:-$IP_C}")
     local prefix
     prefix=$(_remote_prefix "$target")
 
@@ -1255,35 +1544,36 @@ __KEY_EOF__
 # Генерация сервера D
 # ------------------------------------------------------------------------------
 build_D() {
-    step "Сервер D — config + units + .env + D-config + D-install.run"
+    step "Экземпляр $INSTANCE_ID типа D — config + units + .env + D-config + installer"
     ensure_key D
-    ensure_key DC
-    ensure_key DB
+    [[ "$D_TO_C_ENABLED" == true ]] && ensure_key DC
+    [[ "$D_TO_B_ENABLED" == true ]] && ensure_key DB
     load_env "$KEYS_ENV"
+    load_instance_params || fail "Не удалось загрузить параметры экземпляра $INSTANCE_ID"
 
     local arch="${ARCH_D:-amd64}"
     fetch_kernel "$arch"
     ensure_geodata_d
 
     export GEO_MODE="${GEO_MODE:-local}"
-    render_yaml  "$PROJECT_ROOT/template/config_D.yaml.j3"          "$BUILD_DIR/D/config.yaml"     "$PARAMS_ENV"
+    render_yaml  "$PROJECT_ROOT/template/config_D.yaml.j3"          "$D_BUILD_DIR/config.yaml"     "$PARAMS_ENV"
 
     export DIR="$DIR_D" USER="root"
-    render_plain "$PROJECT_ROOT/template/mihomo-tproxy.service.j3" "$BUILD_DIR/D/mihomo.service"  "$PARAMS_ENV"
+    render_plain "$PROJECT_ROOT/template/mihomo-tproxy.service.j3" "$D_BUILD_DIR/mihomo.service"  "$PARAMS_ENV"
 
     export TUNNEL_KEY="${TUNNEL_KEY:-/root/.ssh/id_ed25519_tunnel}"
     export TUNNEL_C_USER="${TUNNEL_C_USER:-root}"
     export TUNNEL_C_PORT="${TUNNEL_C_PORT:-22}"
     export TUNNEL_REMOTE_PORT="${TUNNEL_REMOTE_PORT:-2222}"
     export TUNNEL_C_HOST="${TUNNEL_C_HOST:-$IP_C}"
-    render_plain "$PROJECT_ROOT/template/tunnel.service.j3"         "$BUILD_DIR/D/tunnel.service"  "$PARAMS_ENV"
-    render_plain "$PROJECT_ROOT/template/D-env.j3"                  "$BUILD_DIR/D/.env"            "$PARAMS_ENV"
+    render_plain "$PROJECT_ROOT/template/tunnel.service.j3"         "$D_BUILD_DIR/tunnel.service"  "$PARAMS_ENV"
+    render_plain "$PROJECT_ROOT/template/D-env.j3"                  "$D_BUILD_DIR/.env"            "$PARAMS_ENV"
 
     write_D_config
 
-    "$MIHOMO_BIN" -t -f "$BUILD_DIR/D/config.yaml" -d "$TMP_DIR" >/dev/null \
-        || fail "Валидация не прошла: build/D/config.yaml"
-    ok "build/D/config.yaml валиден"
+    "$MIHOMO_BIN" -t -f "$D_BUILD_DIR/config.yaml" -d "$TMP_DIR" >/dev/null \
+        || fail "Валидация не прошла: $D_BUILD_DIR/config.yaml"
+    ok "$D_BUILD_DIR/config.yaml валиден"
 
     ensure_tunnel_key_d
     make_D_installer
@@ -1293,14 +1583,16 @@ build_D() {
 # Публикация D-install.run на C (once/<sha256>.run, TTL 8h)
 # ------------------------------------------------------------------------------
 publish_D() {
-    step "Публикация D-install.run на C (once/<sha256>.run, установка одной командой)"
-    load_env "$PARAMS_ENV"
+    step "Публикация $INSTANCE_ID installer на C (once/<sha256>.run)"
+    load_instance_params || fail "Не удалось загрузить параметры экземпляра $INSTANCE_ID"
 
     ensure_tunnel_key_d
     authorize_tunnel_key_on_c
     make_D_installer
 
-    local installer="$BUILD_DIR/D/D-install.run"
+    local installer_name="D-install.run"
+    [[ "$INSTANCE_ID" != "D" ]] && installer_name="${INSTANCE_ID}-install.run"
+    local installer="$D_BUILD_DIR/$installer_name"
     [[ -f "$installer" ]] || fail "Нет $installer"
 
     local hash
@@ -1331,7 +1623,7 @@ publish_D() {
   TTL:    ${ttl} сек ($(( ttl / 3600 )) ч)
 
 Ключ D->C уже авторизован на C заранее. На D — одна команда:
-  curl -fsSL http://${web_ip}/mihomo/once/${hash}.run -o /tmp/D-install.run && sh /tmp/D-install.run
+  curl -fsSL http://${web_ip}/mihomo/once/${hash}.run -o /tmp/${installer_name} && sh /tmp/${installer_name}
 EOF
 }
 
@@ -1495,11 +1787,15 @@ deploy_C() {
 # Деплой D (через ProxyCommand C: localhost:REMOTE_PORT_D)
 # ------------------------------------------------------------------------------
 deploy_D() {
-    step "Деплой D (через ProxyCommand C)"
-    load_env "$PARAMS_ENV"
+    step "Деплой экземпляра $INSTANCE_ID типа D (через ProxyCommand C)"
+    load_instance_params || fail "Не удалось загрузить параметры экземпляра $INSTANCE_ID"
 
     : "${IP_C:?IP_C не задан}"
-    : "${TUNNEL_KEY_LOCAL:=$KEYS_DIR/id_ed25519_tunnel}"
+    if [[ "$INSTANCE_ID" == "D" ]]; then
+        TUNNEL_KEY_LOCAL="$KEYS_DIR/id_ed25519_tunnel"
+    else
+        TUNNEL_KEY_LOCAL="$INSTANCE_DIR/$INSTANCE_ID.tunnel.key"
+    fi
     [[ -f "$TUNNEL_KEY_LOCAL" ]] || fail "Нет ключа D->C: $TUNNEL_KEY_LOCAL (сначала: build-servers.sh D --build)"
 
     authorize_tunnel_key_on_c
@@ -1544,17 +1840,17 @@ deploy_D() {
     }
 
     deploy_file_d "$(kernel_path "$arch")" "/usr/local/bin/mihomo" 0755
-    deploy_file_d "$BUILD_DIR/D/config.yaml" "$DIR_D/config.yaml" 0644
-    deploy_file_d "$BUILD_DIR/D/.env" "$DIR_D/.env" 0600
-    deploy_file_d "$BUILD_DIR/D/D-config" "$DIR_D/D-config" 0644
-    deploy_file_d "$BUILD_DIR/D/GeoSite.dat" "$DIR_D/GeoSite.dat" 0644
+    deploy_file_d "$D_BUILD_DIR/config.yaml" "$DIR_D/config.yaml" 0644
+    deploy_file_d "$D_BUILD_DIR/.env" "$DIR_D/.env" 0600
+    deploy_file_d "$D_BUILD_DIR/D-config" "$DIR_D/D-config" 0644
+    deploy_file_d "$D_BUILD_DIR/GeoSite.dat" "$DIR_D/GeoSite.dat" 0644
         # entrypoint.sh + lib — без них не обновляется nftables
     deploy_file_d "$PROJECT_ROOT/deploy/scripts/entrypoint.sh" "$DIR_D/scripts/entrypoint.sh" 0755
     deploy_file_d "$PROJECT_ROOT/deploy/lib/env.sh" "$DIR_D/lib/env.sh" 0644
     deploy_file_d "$PROJECT_ROOT/deploy/lib/http.sh" "$DIR_D/lib/http.sh" 0644
-    [[ -f "$BUILD_DIR/D/geoip.metadb" ]] && deploy_file_d "$BUILD_DIR/D/geoip.metadb" "$DIR_D/geoip.metadb" 0644
-    deploy_file_d "$BUILD_DIR/D/mihomo.service" "/etc/systemd/system/mihomo.service" 0644
-    deploy_file_d "$BUILD_DIR/D/tunnel.service" "/etc/systemd/system/tunnel.service" 0644
+    [[ -f "$D_BUILD_DIR/geoip.metadb" ]] && deploy_file_d "$D_BUILD_DIR/geoip.metadb" "$DIR_D/geoip.metadb" 0644
+    deploy_file_d "$D_BUILD_DIR/mihomo.service" "/etc/systemd/system/mihomo.service" 0644
+    deploy_file_d "$D_BUILD_DIR/tunnel.service" "/etc/systemd/system/tunnel.service" 0644
 
     "${SSH_D[@]}" "$target_D" "mihomo -t -d '$DIR_D' -f '$DIR_D/config.yaml'" \
         || fail "mihomo -t на D не прошёл"
@@ -1582,15 +1878,24 @@ main() {
 
     [[ -f "$PARAMS_ENV" ]] || fail "Не найден $PARAMS_ENV (создайте из шаблона, см. --help)"
 
-    load_env "$PARAMS_ENV"
-    load_env "$KEYS_ENV" 2>/dev/null || true
+    if [[ "$TARGET" == "D" ]]; then
+        load_instance_params || fail "Не удалось загрузить параметры экземпляра $INSTANCE_ID"
+    else
+        load_params || fail "Не удалось загрузить $PARAMS_ENV"
+    fi
+    load_env "$GLOBAL_KEYS_ENV" 2>/dev/null || true
+    if [[ "$KEYS_ENV" != "$GLOBAL_KEYS_ENV" ]]; then
+        load_env "$KEYS_ENV" 2>/dev/null || true
+    fi
 
-    info "TARGET=$TARGET  BUILD=$DO_BUILD  DEPLOY=$DO_DEPLOY  PUBLISH=$DO_PUBLISH  CHECK=$DO_CHECK  FORCE=$FORCE"
+    info "TARGET=$TARGET  INSTANCE=$INSTANCE_ID  BUILD=$DO_BUILD  DEPLOY=$DO_DEPLOY  PUBLISH=$DO_PUBLISH  CHECK=$DO_CHECK  FORCE=$FORCE"
     kv "params.env" "$PARAMS_ENV"
     kv "keys.env"   "$KEYS_ENV"
 
     step "Проверка params.env"
     validate_params "$TARGET" || fail "Исправьте params.env и повторите"
+    validate_d_connection_lists || fail "Исправьте списки подключений D_TO_B_INSTANCES / D_TO_C_INSTANCES"
+    validate_d_instance_collisions || fail "Исправьте конфликты экземпляров D"
 
     if [[ "$DO_CHECK" == true || "$DO_DEPLOY" == true || "$DO_PUBLISH" == true ]]; then
         step "Проверка доступности серверов"
@@ -1616,7 +1921,7 @@ main() {
             A)   ensure_key A; build_A; build_users ;;
             B)   ensure_key B; ensure_key BA; ensure_key BC; build_B ;;
             C)   ensure_key C; ensure_key BC; build_C ;;
-            D)   ensure_key D; ensure_key DC; ensure_key DB; build_D ;;
+            D)   ensure_key D; build_D ;;
         esac
     fi
 

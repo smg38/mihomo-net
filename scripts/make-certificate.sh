@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================================
 # scripts/make-certificate.sh — генерация самоподписанного сертификата для hysteria-сервера на B
-# Версия: 3.2.0   2026-11-5
+# Версия: 3.3.0   2026-11-07
 # Автор: @smg38
 #
 # Использование (запускать на A):
@@ -11,6 +11,7 @@
 #   - openssl установлен на A 
 set -e
 [ -f deploy/lib/env.sh ] && source deploy/lib/env.sh || { echo "Не найден deploy/lib/env.sh"; exit 1; }
+validate_env_file_literal "build/keys/params.env" || { echo "params.env должен содержать буквальные значения"; exit 1; }
 env_get "build/keys/params.env" "IP_B"
 # 1. Создание самоподписанного сертификата (действителен 10 лет, включает IP-адрес)
 openssl req -x509 -nodes -newkey rsa:2048 \

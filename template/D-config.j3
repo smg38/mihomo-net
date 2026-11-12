@@ -1,15 +1,16 @@
 # =============================================================================
 # template/D-config.j3 — параметры сервера D (локальный шлюз, за NAT)
-# Версия: 3.2.0   2026-11-5
+# Версия: 3.3.0   2026-11-07
 # Автор: @smg38
 # =============================================================================
-# Рендерится в build/D/D-config на сборочной машине A.
+# Рендерится в build/<ID>/D-config на сборочной машине A.
 # Используется на D скриптами D-setup.sh / D-tunnel.sh / entrypoint.
 # =============================================================================
 
 # --- Сеть и runtime ---
 IP_D={{ IP_D }}
 PORT_D={{ PORT_D }}
+DNS_PORT={{ DNS_PORT }}
 DIR_D={{ DIR_D }}
 ARCH_D={{ ARCH_D }}
 
@@ -32,14 +33,20 @@ PUBLIC_KEY_B={{ PUBLIC_KEY_B }}
 SHORT_ID_B={{ SHORT_ID_B }}
 
 # --- Reverse SSH tunnel D -> C (управление D через C) ---
-TUNNEL_C_HOST={{ IP_C }}
-TUNNEL_C_USER=root
-TUNNEL_C_PORT=22
+TUNNEL_C_HOST={{ TUNNEL_C_HOST }}
+TUNNEL_C_USER={{ TUNNEL_C_USER }}
+TUNNEL_C_PORT={{ TUNNEL_C_PORT }}
 TUNNEL_REMOTE_PORT={{ TUNNEL_REMOTE_PORT }}      # 2222, слушает 127.0.0.1 на C
-TUNNEL_KEY=/root/.ssh/id_ed25519_tunnel
+TUNNEL_KEY={{ TUNNEL_KEY }}
 
 # --- Как A подключается к D (для build-servers.sh --deploy D) ---
-JUMP_D_HOST={{ IP_C }}
-JUMP_D_USER=root
-JUMP_D_SSH_PORT=22
-REMOTE_PORT_D={{ TUNNEL_REMOTE_PORT }}           # 2222     
+JUMP_D_HOST={{ JUMP_D_HOST }}
+JUMP_D_USER={{ JUMP_D_USER }}
+JUMP_D_SSH_PORT={{ JUMP_D_SSH_PORT }}
+REMOTE_PORT_D={{ REMOTE_PORT_D }}
+
+# --- CIDR / geodata ---
+CN_CIDR_URL={{ CN_CIDR_URL }}
+RU_CIDR_URL={{ RU_CIDR_URL }}
+GEOSITE_URL={{ GEOSITE_URL }}
+GEOIP_METADB_URL={{ GEOIP_METADB_URL }}

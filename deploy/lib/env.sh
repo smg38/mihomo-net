@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================================
 # deploy/lib/env.sh — единый парсер dotenv (данные, не shell).
-# Версия: 3.2.0 2026-11-05
+# Версия: 3.3.0 2026-11-07
 # Правила:
 #   KEY=value            — значение до конца строки, inline "# ..." срезается
 #   KEY="value"          — двойные кавычки: \n \t \" \\ \$ раскрываются,
@@ -234,6 +234,54 @@ load_env_file() {
     done < "$env_file"
 
     return 0
+}
+
+# Проверяет конфигурацию, в которой значения должны быть буквальными.
+# Используется для params.env и файлов экземпляров: наследование выполняется
+# через порядок загрузки файлов, а не через подстановки внутри значений.
+validate_env_file_literal() {
+    local env_file="$1" line value number=0 interpolation_re='\$[A-Za-z_{(]'
+    [ -f "$env_file" ] || return 1
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        ((number+=1))
+        line="${line%$'\r'}"
+        [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*=(.*)$ ]] || continue
+        value="${BASH_REMATCH[2]}"
+        value="${value#"${value%%[![:space:]]*}"}"
+        if [[ "$value" != \"*\" && "$value" != \'*\' ]]; then
+            value=$(_env_strip_inline_comment "$value")
+        fi
+        if [[ "$value" =~ $interpolation_re ]]; then
+            printf '[env] %s:%d: подстановка переменных запрещена; укажите буквальное значение\n' \
+                "$env_file" "$number" >&2
+            return 2
+        fi
+    done < "$env_file"
+
+    return 0
+}
+
+# Загружает файл только после проверки, что его значения буквальные.
+load_env_file_literal() {
+    local env_file="$1"
+    validate_env_file_literal "$env_file" || return $?
+    load_env_file "$env_file"
+}
+
+validate_d_instance_file() {
+    local file="$1" line name
+    local allowed=' IP_D PORT_D DNS_PORT DIR_D ARCH_D SECRET_KEY_D GEO_MODE TUNNEL_C_HOST TUNNEL_C_USER TUNNEL_C_PORT TUNNEL_REMOTE_PORT TUNNEL_KEY CN_CIDR_URL RU_CIDR_URL GEOSITE_URL GEOIP_METADB_URL '
+    validate_env_file_literal "$file" || return $?
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%$'\r'}"
+        [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)= ]] || continue
+        name="${BASH_REMATCH[2]}"
+        if [[ "$allowed" != *" $name "* ]]; then
+            printf '[instances] %s: неизвестный параметр %s\n' "$file" "$name" >&2
+            return 2
+        fi
+    done < "$file"
 }
 
 # Найденные переменные парсятся и экспортируются в текущее окружение.

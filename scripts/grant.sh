@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================================
 # grant.sh — выдача доступа к user*.txt на сервере C
-# Версия: 3.2.0   2026.11.5
+# Версия: 3.3.0   2026.11.7
 # Автор: @smg38
 #
 # Использование (запускать на C):
@@ -23,7 +23,9 @@ HOST="{{ WEB_IP }}"
 if [ "${HOST[0]}" == "{{" ]; then
         # shellcheck disable=SC1091
         source ./lib/env.sh
-        load_env_file build/keys/params.env  || true
+        if [[ -f build/keys/params.env ]]; then
+                load_env_file_literal build/keys/params.env || exit 1
+        fi
         #WEB_IP=$(cat build/keys/params.env | grep WEB_IP | sed -e 's/WEB_IP=//g
         HOST="${WEB_IP:-}"
 fi

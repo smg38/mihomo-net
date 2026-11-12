@@ -126,7 +126,13 @@ C → B, если назначение не в RU/CN.
 | `IP_B` | `build/keys/params.env` | `103.x.x.152` |
 | `IP_C` | `build/keys/params.env` | `94.232.248.179` |
 
-Значения задаются в `build/keys/params.env`. Шаблон — `build/keys/params.env.example`.
+Значения задаются в `build/keys/params.env`. Шаблон — `template/params.env.example`.
+В `params.env` и `build/instances/*.env` указываются только буквальные
+значения: подстановки переменных запрещены.
+Списки `D_TO_B_INSTANCES` и `D_TO_C_INSTANCES` в `params.env` независимо
+задают, какие экземпляры D могут подключаться к B и C.
+Они управляют VLESS-выходами D и соответствующими учётками на B/C, но не
+reverse SSH-туннелем D → C для управления.
 
 ### 1.8 UUID-схема
 
@@ -137,7 +143,9 @@ C → B, если назначение не в RU/CN.
 | `UUID_BA` | A → B (релей) | `scripts/build-servers.sh`, `ensure_key BA` |
 | `UUID_BC` | C → B (релей) | `scripts/build-servers.sh`, `ensure_key BC` |
 
-Все UUID хранятся в `build/keys/keys.env` (в `.gitignore`).
+UUID A/B/C и экземпляра D хранятся в `build/keys/keys.env` (в `.gitignore`).
+Дополнительные экземпляры D получают отдельные файлы
+`build/instances/<ID>.keys.env`.
 
 ### 1.9 Логика маршрутизации
 
@@ -230,7 +238,7 @@ rules:
 #### 2.2.1 Команды сборки и запуска
 
 ```
-cp build/keys/params.env.example build/keys/params.env
+cp template/params.env.example build/keys/params.env
 $EDITOR build/keys/params.env
 ./scripts/build-servers.sh A --build
 ./build-local.sh start
@@ -275,7 +283,7 @@ graph TB
 
 #### 2.2.3 Описание разворачивания
 
-1. Копируется `build/keys/params.env.example` в `build/keys/params.env`, редактируются IP, порты, имена пользователей.
+1. Копируется `template/params.env.example` в `build/keys/params.env`, редактируются IP, порты, имена пользователей.
 2. `./scripts/build-servers.sh A --build` генерирует ключи для A (`ensure_key A`, `ensure_key A_user1`, `ensure_key A_user2`), рендерит `build/A/config.yaml` из `template/config_A.yaml.j3`, копирует его в `.tmp/config.yaml`.
 3. `./build-local.sh start` запускает ядро mihomo и `mihomo-manager` в фоне.
 
@@ -382,6 +390,8 @@ graph TB
 4. На C настраивается nginx: `root /var/www/html;`, `location /mihomo/sub/`, `location /mihomo/once/`. Каталог `/opt/mihomo/keys/` — вне root nginx, доступ к нему невозможен.
 5. На C создаётся `/opt/mihomo/grant.sh` (см. `scripts/grant.sh`) для выдачи доступа: `grant.sh list | grant <user> | once <user> [ttl] | revoke <user> | list-tokens`.
 6. Перезапускается служба mihomo на C.
+
+Для нескольких серверов типа D см. [раздел о D-экземплярах](D-deployment.md#11-несколько-экземпляров-типа-d): у каждого свои overlay-настройки, ключи и порт reverse-туннеля на C.
 
 ### 2.5 Финальное тестирование
 

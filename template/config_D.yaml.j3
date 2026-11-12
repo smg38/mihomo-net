@@ -1,6 +1,6 @@
 # =============================================================================
 # template/config_D.yaml.j3 — сервер D: прозрачный шлюз для локальной сети (RU)
-# Версия: 3.2.0   2026-11-5
+# Версия: 3.3.0   2026-11-07
 # Автор: @smg38
 #
 # Пользователи D ничего не настраивают: трафик LAN идёт через D как через
@@ -38,6 +38,7 @@ sniffer:
       ports: [443, 8443]
 
 proxies:
+{% if D_TO_C_ENABLED %}
   - name: "to-serverC"
     type: vless
     server: {{ IP_C }}
@@ -53,7 +54,8 @@ proxies:
     client-fingerprint: {{ FINGERPRINT }}
     tls: true
     udp: true
-{% if LISTEN_B == "vless" %}
+{% endif %}
+{% if D_TO_B_ENABLED and LISTEN_B == "vless" %}
   - name: "to-serverB"
     type: vless
     server: {{ IP_B }}
@@ -70,7 +72,7 @@ proxies:
     tls: true
     udp: true
 {% endif %}
-{% if LISTEN_B == "hysteria2" %}
+{% if D_TO_B_ENABLED and LISTEN_B == "hysteria2" %}
   - name: "hy2-to-B"
     type: hysteria2
     server: {{ IP_B }}          # Публичный IP сервера B
@@ -97,8 +99,15 @@ proxy-groups:
     type: fallback
 #    type: select
     proxies:
+{% if D_TO_C_ENABLED %}
       - to-serverC
+{% endif %}
+{% if D_TO_B_ENABLED and LISTEN_B == "vless" %}
       - to-serverB
+{% endif %}
+{% if D_TO_B_ENABLED and LISTEN_B == "hysteria2" %}
+      - hy2-to-B
+{% endif %}
 #    default-selected: to-serverC
     url: "https://www.gstatic.com/generate_204"
     interval: 30

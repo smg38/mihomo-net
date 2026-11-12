@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================================
 # install.sh — установка сервера D (внутри D-install.run, запускается НА D)
-# Версия 3.2.0   2026-11-5
+# Версия 3.3.0   2026-11-07
 # Автор: @smg38
 #
 # Использование на D:
@@ -28,6 +28,13 @@ for arg in "$@"; do
   esac
 done
 
+# Both the bootstrap archive and the installed copy keep D-config beside
+# install.sh. Load it before uninstall so instance paths are respected.
+if [[ -f D-config ]]; then
+  # shellcheck disable=SC1091
+  source ./D-config
+fi
+
 log()  { printf '\n\033[1;36m==>\033[0m %s\n' "$*"; }
 info() { printf '  · %s\n' "$*"; }
 ok()   { printf '  \033[0;32m✓\033[0m %s\n' "$*"; }
@@ -43,6 +50,7 @@ fail() { printf '  \033[0;31m✗\033[0m %s\n' "$*" >&2; exit 1; }
 if $DO_UNINSTALL; then
     log "Удаление D"
     local_dir="${DIR_D:-/opt/mihomo}"
+    tunnel_key="${TUNNEL_KEY:-/root/.ssh/id_ed25519_tunnel}"
 
     systemctl stop mihomo.service 2>/dev/null || true
     systemctl disable mihomo.service 2>/dev/null || true
@@ -66,7 +74,7 @@ if $DO_UNINSTALL; then
     rm -f "$local_dir/install.sh"
     rm -rf "$local_dir"
 
-    rm -f /root/.ssh/id_ed25519_tunnel /root/.ssh/id_ed25519_tunnel.pub
+    rm -f "$tunnel_key" "${tunnel_key}.pub"
     rm -f /root/.ssh/known_hosts_tunnel
 
     warn "Ключ D->C в ~/.ssh/authorized_keys на C НЕ удалён. Удалите вручную на C:"
@@ -103,6 +111,8 @@ source ./D-config
 : "${TUNNEL_REMOTE_PORT:=2222}"
 : "${TUNNEL_KEY:=/root/.ssh/id_ed25519_tunnel}"
 : "${DIR_D:=/opt/mihomo}"
+: "${PORT_D:=7893}"
+: "${DNS_PORT:=1053}"
 ok "IP_C=$IP_C  TUNNEL_REMOTE_PORT=$TUNNEL_REMOTE_PORT  DIR_D=$DIR_D"
 
 # --- 3. Раскладка ---
@@ -238,11 +248,12 @@ if $SKIP_TESTS; then
   log "Тесты пропущены (--skip-tests)"
 else
   log "Ожидание готовности mihomo (порты + nft + API)"
-  # Ждём до 30 сек: порт 7890, порт 7893, nft table clash, API :9900
+  # Ждём до 30 сек: mihomo ports, nft table clash, API :9900
   ready=false
   for _ in $(seq 1 60); do
       if ss -tln 2>/dev/null | grep -q ':7890 ' \
-         && ss -tln 2>/dev/null | grep -q ':7893 ' \
+         && ss -tln 2>/dev/null | grep -q ":${PORT_D} " \
+         && ss -tln 2>/dev/null | grep -q ":${DNS_PORT} " \
          && nft list table clash >/dev/null 2>&1 \
          && curl -sS -m 2 -o /dev/null -H "Authorization: Bearer ${SECRET_KEY_D:-}" \
               "http://127.0.0.1:9900/version" 2>/dev/null; then
